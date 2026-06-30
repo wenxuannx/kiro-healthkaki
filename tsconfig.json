@@ -31,9 +31,6 @@
     "**/*.mts"
   ],
   "exclude": [
-    "node_modules",
-    "vite.config.ts",
-    "src/main.tsx",
-    "src/vite-env.d.ts"
+    "node_modules"
   ]
 }

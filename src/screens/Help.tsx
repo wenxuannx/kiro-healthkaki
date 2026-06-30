@@ -35,8 +35,8 @@ const SECTIONS = [
   {
     title: 'Contact & Feedback',
     faqs: [
-      { q: 'How do I contact support?', a: 'You can reach us via live chat (Mon–Fri, 9am–6pm), email at support@subsidykaki.sg, or call our helpline at 1800-XXX-XXXX. For subsidy-specific questions, contact MOH SilverLine at 1800-650-6060.' },
-      { q: 'How do I give feedback on the app?', a: 'Use the thumbs up/down buttons below each FAQ, or email feedback@subsidykaki.sg. Your feedback helps us improve the app for all users, especially our elderly community.' },
+      { q: 'How do I contact support?', a: 'You can reach us via live chat (Mon–Fri, 9am–6pm), email at support@healthkaki.sg, or call our helpline at 1800-XXX-XXXX. For subsidy-specific questions, contact MOH SilverLine at 1800-650-6060.' },
+      { q: 'How do I give feedback on the app?', a: 'Use the thumbs up/down buttons below each FAQ, or email feedback@healthkaki.sg. Your feedback helps us improve the app for all users, especially our elderly community.' },
     ],
   },
 ]
@@ -130,7 +130,7 @@ export default function Help({ onNavigate }: Props) {
           <div className="flex flex-col gap-3">
             {[
               { icon: MessageCircle, color: 'bg-orange-50 text-orange-500', label: 'Live chat', sub: 'Mon–Fri, 9am–6pm', action: () => alert('Opens live chat') },
-              { icon: Mail,          color: 'bg-teal-50 text-teal-500',     label: 'Email support', sub: 'support@subsidykaki.sg', action: () => alert('Opens email') },
+              { icon: Mail,          color: 'bg-teal-50 text-teal-500',     label: 'Email support', sub: 'support@healthkaki.sg', action: () => alert('Opens email') },
               { icon: Phone,         color: 'bg-navy-50 text-navy-500',     label: 'Call helpline', sub: '1800-XXX-XXXX', action: () => window.open('tel:1800XXXXXXX') },
             ].map(c => (
               <button key={c.label} onClick={c.action} className="flex items-center gap-4 bg-white border border-neutral-200 rounded-2xl p-4 text-left hover:bg-neutral-50 transition-colors shadow-card active:scale-[0.98]">

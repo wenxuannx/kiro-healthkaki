@@ -1,4 +1,4 @@
-# SubsidyKaki
+# HealthKaki
 
 A web app built with Next.js, Tailwind CSS, and Supabase.
 

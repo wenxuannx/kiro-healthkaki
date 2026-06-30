@@ -18,7 +18,7 @@ export const useLang = () => useContext(LangContext)
 /* UI label translations */
 export const T: Record<Language, Record<string, string>> = {
   en: {
-    appName: 'SubsidyKaki',
+    appName: 'HealthKaki',
     home_title: 'Know Your Subsidies in Seconds',
     home_sub: 'Snap any medical document — before or after your visit — and instantly see what you\'re entitled to.',
     scan: 'Scan Medical Document',
@@ -60,7 +60,7 @@ export const T: Record<Language, Record<string, string>> = {
     privacy: '您的身份证号码和个人详细信息将在处理前自动删除。我们从不存储您的文件。',
   },
   ms: {
-    appName: 'SubsidyKaki',
+    appName: 'HealthKaki',
     home_title: 'Ketahui Subsidi Anda dalam Beberapa Saat',
     home_sub: 'Ambil gambar mana-mana dokumen perubatan — sebelum atau selepas lawatan — dan lihat kelayakan anda sekarang.',
     scan: 'Imbas Dokumen Perubatan',

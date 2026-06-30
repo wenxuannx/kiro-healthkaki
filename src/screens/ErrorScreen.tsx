@@ -37,7 +37,7 @@ const ERRORS: Record<ErrorType, {
   offline: {
     icon: WifiOff, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-500',
     title: 'No internet connection',
-    body: "SubsidyKaki needs an internet connection to process your document. Check your WiFi or mobile data and try again. Your document has been saved.",
+    body: "HealthKaki needs an internet connection to process your document. Check your WiFi or mobile data and try again. Your document has been saved.",
     primary: { label: 'Try again', icon: RefreshCw, to: 'confirm' },
     secondary: { label: 'View past results', to: 'history' },
   },
