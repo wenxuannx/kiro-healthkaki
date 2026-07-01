@@ -1,20 +1,27 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, ShieldCheck, RefreshCw, ChevronRight, CheckSquare, Square, Tag, Check } from 'lucide-react'
+import { FileText, ShieldCheck, RefreshCw, ChevronRight, CheckSquare, Square, Tag, Check, AlertTriangle } from 'lucide-react'
 import { Button, Card, TopBar } from '../components/ui'
-import type { Screen } from '../types'
+import type { DocumentTypeId, ProcessDocumentResponse, Screen } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void; file: File | null; onFileReady: (file: File) => void }
+interface Props {
+  onNavigate: (s: Screen) => void
+  file: File | null
+  onFileReady: (file: File) => void
+  result: ProcessDocumentResponse | null
+  scanError: boolean
+}
 
-// User-selectable document categories for context in the review step.
-const DOC_TYPES = [
-  { id: 'invoice',     label: 'Polyclinic Invoice',    icon: '🧾', badge: 'orange' as const,  timing: 'After visit', timingColor: 'text-orange-500' },
-  { id: 'referral',    label: 'Referral Letter',       icon: '📋', badge: 'teal' as const,    timing: 'Before visit ★', timingColor: 'text-teal-600' },
-  { id: 'diagnosis',   label: 'Diagnosis Letter',      icon: '🩺', badge: 'teal' as const,    timing: 'Before visit ★', timingColor: 'text-teal-600' },
-  { id: 'prescription',label: 'Prescription Slip',     icon: '💊', badge: 'navy' as const,    timing: 'Before/After',   timingColor: 'text-navy-500' },
-  { id: 'followup',    label: 'Follow-up Letter',      icon: '📄', badge: 'gray' as const,    timing: 'During care',    timingColor: 'text-neutral-500' },
-  { id: 'specialist',  label: 'Specialist Memo',       icon: '📝', badge: 'gray' as const,    timing: 'During care',    timingColor: 'text-neutral-500' },
+// Metadata for each classifiable document type — used both for the auto-detected
+// display and the manual override picker.
+const DOC_TYPES: { id: DocumentTypeId; label: string; icon: string; badge: 'orange' | 'teal' | 'navy' | 'gray'; timing: string; timingColor: string }[] = [
+  { id: 'invoice',     label: 'Polyclinic Invoice',    icon: '🧾', badge: 'orange',  timing: 'After visit', timingColor: 'text-orange-500' },
+  { id: 'referral',    label: 'Referral Letter',       icon: '📋', badge: 'teal',    timing: 'Before visit ★', timingColor: 'text-teal-600' },
+  { id: 'diagnosis',   label: 'Diagnosis Letter',      icon: '🩺', badge: 'teal',    timing: 'Before visit ★', timingColor: 'text-teal-600' },
+  { id: 'prescription',label: 'Prescription Slip',     icon: '💊', badge: 'navy',    timing: 'Before/After',   timingColor: 'text-navy-500' },
+  { id: 'followup',    label: 'Follow-up Letter',      icon: '📄', badge: 'gray',    timing: 'During care',    timingColor: 'text-neutral-500' },
+  { id: 'specialist',  label: 'Specialist Memo',       icon: '📝', badge: 'gray',    timing: 'During care',    timingColor: 'text-neutral-500' },
 ]
 
 function ConsentCheckbox({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) {
@@ -28,14 +35,18 @@ function ConsentCheckbox({ checked, onToggle, label }: { checked: boolean; onTog
   )
 }
 
-export default function Confirm({ onNavigate, file, onFileReady }: Props) {
-  const [checked1, setChecked1]   = useState(false)
-  const [checked2, setChecked2]   = useState(false)
-  const [docType, setDocType]     = useState(DOC_TYPES[0])
+export default function Confirm({ onNavigate, file, onFileReady, result, scanError }: Props) {
+  const [checked1, setChecked1]     = useState(false)
+  const [checked2, setChecked2]     = useState(false)
+  const [manualOverride, setManualOverride] = useState<DocumentTypeId | null>(null)
   const [showPicker, setShowPicker] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => file && file.type !== 'application/pdf' ? URL.createObjectURL(file) : null)
-  const fileInput                 = useRef<HTMLInputElement>(null)
-  const bothChecked               = checked1 && checked2
+  const fileInput                   = useRef<HTMLInputElement>(null)
+  const bothChecked                 = checked1 && checked2
+
+  const detectedId = manualOverride ?? result?.extracted.documentType ?? null
+  const docType = useMemo(() => DOC_TYPES.find(d => d.id === detectedId) ?? null, [detectedId])
+  const stillDetecting = !result && !scanError
 
   useEffect(() => {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }
@@ -64,9 +75,19 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
           <div className="p-4 flex items-center justify-between">
             <div>
               <p className="text-base font-semibold text-neutral-900">{file?.name ?? 'medical_document.jpg'}</p>
-              <p className="text-sm text-success-500 flex items-center gap-1 mt-0.5">
-                <ShieldCheck className="w-3.5 h-3.5" /> Document detected
-              </p>
+              {stillDetecting ? (
+                <p className="text-sm text-neutral-400 flex items-center gap-1 mt-0.5">
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" /> Detecting…
+                </p>
+              ) : scanError ? (
+                <p className="text-sm text-orange-500 flex items-center gap-1 mt-0.5">
+                  <AlertTriangle className="w-3.5 h-3.5" /> Auto-detect unavailable
+                </p>
+              ) : (
+                <p className="text-sm text-success-500 flex items-center gap-1 mt-0.5">
+                  <ShieldCheck className="w-3.5 h-3.5" /> Document detected
+                </p>
+              )}
             </div>
             <button
               onClick={() => fileInput.current?.click()}
@@ -77,7 +98,7 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
           </div>
         </Card>
 
-        {/* User-selected document category */}
+        {/* Auto-detected document category — tappable to override manually */}
         <div>
           <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">Document category</p>
           <button
@@ -85,11 +106,11 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
             className="w-full bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-3 shadow-card hover:bg-neutral-50 active:scale-[0.98] transition-all"
           >
             <div className="w-11 h-11 rounded-xl bg-orange-50 flex items-center justify-center flex-shrink-0 text-2xl">
-              {docType.icon}
+              {docType?.icon ?? '❓'}
             </div>
             <div className="flex-1 text-left">
-              <p className="text-base font-bold text-neutral-900">{docType.label}</p>
-              <p className={`text-sm font-semibold ${docType.timingColor} mt-0.5`}>{docType.timing}</p>
+              <p className="text-base font-bold text-neutral-900">{docType?.label ?? (stillDetecting ? 'Detecting category…' : 'Select a category')}</p>
+              {docType && <p className={`text-sm font-semibold ${docType.timingColor} mt-0.5`}>{docType.timing}</p>}
             </div>
             <div className="flex items-center gap-1 text-sm text-neutral-400">
               <Tag className="w-4 h-4" />
@@ -111,15 +132,15 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
                   {DOC_TYPES.map((dt, i) => (
                     <button
                       key={dt.id}
-                      onClick={() => { setDocType(dt); setShowPicker(false) }}
-                      className={`w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-neutral-50 transition-colors ${i < DOC_TYPES.length - 1 ? 'border-b border-neutral-100' : ''} ${docType.id === dt.id ? 'bg-orange-50' : ''}`}
+                      onClick={() => { setManualOverride(dt.id); setShowPicker(false) }}
+                      className={`w-full flex items-center gap-3 px-4 py-3.5 text-left hover:bg-neutral-50 transition-colors ${i < DOC_TYPES.length - 1 ? 'border-b border-neutral-100' : ''} ${docType?.id === dt.id ? 'bg-orange-50' : ''}`}
                     >
                       <span className="text-xl flex-shrink-0">{dt.icon}</span>
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-neutral-900">{dt.label}</p>
                         <p className={`text-xs font-medium ${dt.timingColor} mt-0.5`}>{dt.timing}</p>
                       </div>
-                      {docType.id === dt.id && (
+                      {docType?.id === dt.id && (
                         <div className="w-5 h-5 rounded-full bg-orange-500 flex items-center justify-center flex-shrink-0">
                           <Check className="w-2.5 h-2.5 text-white" strokeWidth={3} />
                         </div>
@@ -133,7 +154,7 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
         </div>
 
         {/* Before-visit callout when relevant */}
-        {(docType.id === 'referral' || docType.id === 'diagnosis' || docType.id === 'prescription') && (
+        {docType && (docType.id === 'referral' || docType.id === 'diagnosis' || docType.id === 'prescription') && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -193,6 +214,7 @@ export default function Confirm({ onNavigate, file, onFileReady }: Props) {
           if (nextFile) {
             onFileReady(nextFile)
             setPreviewUrl(nextFile.type === 'application/pdf' ? null : URL.createObjectURL(nextFile))
+            setManualOverride(null)
             setChecked1(false)
             setChecked2(false)
           }

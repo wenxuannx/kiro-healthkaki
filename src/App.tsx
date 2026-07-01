@@ -58,29 +58,35 @@ function AppInner() {
     { id: 'settings' as Screen, label: language === 'zh' ? '设置' : language === 'ms' ? 'Tetapan' : language === 'ta' ? 'அமைப்பு' : 'Settings', Icon: SettingsIcon },
   ]
 
-  const handleProcessingComplete = useCallback((data: ProcessDocumentResponse) => {
-    setApiResult(data)
-    navigate('results')
-  }, [navigate])
-
-  const handleProcessingError = useCallback((message: string) => {
-    setProcessingError(message)
-    navigate('error')
-  }, [navigate])
-
-  const handleFileReady = useCallback((nextFile: File) => {
-    setFile(nextFile)
+  // Kicks off the Gemini extraction + subsidy lookup as soon as a file is picked,
+  // so the auto-detected document type is ready by the time the user reaches Confirm.
+  const processFile = useCallback((selected: File) => {
+    setFile(selected)
     setApiResult(null)
     setProcessingError(null)
     setSubsidy(null)
+
+    const formData = new FormData()
+    formData.append('file', selected)
+
+    fetch('/api/process-document', { method: 'POST', body: formData })
+      .then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error ?? 'Processing failed')
+        }
+        return res.json() as Promise<ProcessDocumentResponse>
+      })
+      .then(setApiResult)
+      .catch((err: unknown) => setProcessingError(err instanceof Error ? err.message : 'Processing failed'))
   }, [])
 
   const renderScreen = () => {
     switch (screen) {
-      case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={handleFileReady} />
-      case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={handleFileReady} />
-      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={handleFileReady} />
-      case 'processing':  return <ProcessingScreen file={file} onComplete={handleProcessingComplete} onError={handleProcessingError} />
+      case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
+      case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={processFile} />
+      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} />
+      case 'processing':  return <ProcessingScreen onNavigate={navigate} result={apiResult} scanError={processingError !== null} />
       case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} apiResult={apiResult} />
       case 'bill':        return <BillScreen onNavigate={navigate} bill={apiResult?.extracted.bill ?? null} institution={apiResult?.extracted.institution ?? null} visitDate={apiResult?.extracted.visitDate ?? null} />
       case 'medications': return <MedicationsScreen onNavigate={navigate} prescriptions={apiResult?.extracted.prescriptions ?? []} />
@@ -89,7 +95,7 @@ function AppInner() {
       case 'help':        return <HelpScreen onNavigate={navigate} />
       case 'settings':    return <SettingsScreen onNavigate={navigate} />
       case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" errorMessage={processingError} />
-      default:            return <HomeScreen onNavigate={navigate} onFileReady={handleFileReady} />
+      default:            return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
     }
   }
 

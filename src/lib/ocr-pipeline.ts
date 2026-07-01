@@ -13,11 +13,48 @@
  * Requirements: 2.1, 2.2, 2.3, 2.4, 2.5, 2.6, 2.7, 2.11, 3.3, 4.1, 4.2
  */
 
-import type { RawExtractedData, RedactedExtractedData } from "@/types";
+import type { DocumentTypeId, RawExtractedData, RedactedExtractedData } from "@/types";
 import { OcrExtractionError } from "@/types";
 import { redactExtractedData } from "@/lib/nric-redactor";
 import { geminiModel } from "@/services/gemini";
 import { extractMedicationInfo } from "@/lib/medication-ocr";
+
+const DOCUMENT_TYPES: DocumentTypeId[] = ["invoice", "referral", "diagnosis", "prescription", "followup", "specialist"];
+
+// Gemini sometimes returns a synonym or human-readable label instead of the
+// exact enum string despite prompt instructions — normalize common variants
+// before falling back to null.
+const DOCUMENT_TYPE_SYNONYMS: Record<string, DocumentTypeId> = {
+  referral: "referral",
+  "referral letter": "referral",
+  "referral notes": "referral",
+  "referral note": "referral",
+  invoice: "invoice",
+  bill: "invoice",
+  receipt: "invoice",
+  diagnosis: "diagnosis",
+  "diagnosis letter": "diagnosis",
+  "chronic condition letter": "diagnosis",
+  prescription: "prescription",
+  "prescription slip": "prescription",
+  "medication slip": "prescription",
+  followup: "followup",
+  "follow-up": "followup",
+  "follow-up letter": "followup",
+  "follow up letter": "followup",
+  specialist: "specialist",
+  "specialist memo": "specialist",
+  "specialist consultation": "specialist",
+};
+
+function normalizeDocumentType(value: unknown): DocumentTypeId | null {
+  if (typeof value !== "string") return null;
+  const key = value.trim().toLowerCase();
+  if (DOCUMENT_TYPES.includes(key as DocumentTypeId)) {
+    return key as DocumentTypeId;
+  }
+  return DOCUMENT_TYPE_SYNONYMS[key] ?? null;
+}
 
 const PRESCRIPTION_FOLLOW_UP_PROMPT = `Act as a prescription OCR reader. Inspect the original medical document carefully, including tables, medication-order sections, discharge medication lists, and small printed labels. Extract every medication that is explicitly printed.
 
@@ -43,6 +80,14 @@ Analyse the provided medical document image and extract the following informatio
 5. Full text content of the document
 6. Prescription medications, including the printed medication name, dosage, frequency, and instructions
 7. Printed bill total and line items, if this is a bill or invoice
+8. Document type — classify as exactly one of the following lowercase string values (use the value on the left of the colon, not the description):
+   - "invoice": a bill, receipt, or itemised charges for services/medication issued after a visit
+   - "referral": contains a "Referral To" / "Referral Notes" section directing the patient to another institution, department, or specialist — regardless of the document's title or header
+   - "diagnosis": states a new diagnosis or chronic condition without referring the patient elsewhere
+   - "prescription": a prescription or medication dispensing slip listing drug names and dosages
+   - "followup": a follow-up appointment reminder or letter for an existing condition
+   - "specialist": a specialist consultation memo or clinical notes from a specialist visit
+   Judge by the document's content and structure, not its printed title. Only use null if none of the above apply after reading the full content.
 
 IMPORTANT:
 - If you find any NRIC numbers (format: one letter S/T/F/G followed by 7 digits followed by one letter), replace them with [REDACTED].
@@ -68,7 +113,8 @@ Respond with this exact JSON structure:
     "currency": "SGD",
     "totalAmount": 120.50,
     "items": [{ "description": "printed line-item description", "amount": 20.00 }]
-  }
+  },
+  "documentType": "invoice|referral|diagnosis|prescription|followup|specialist or null"
 }`;
 
 /**
@@ -158,7 +204,12 @@ function parseGeminiResponse(responseText: string): RawExtractedData {
         })
       : [],
     bill: normalizeBill(parsed.bill),
+    documentType: normalizeDocumentType(parsed.documentType),
   };
+
+  if (data.documentType === null && parsed.documentType) {
+    console.warn(`[ocr-pipeline] Unrecognized documentType from Gemini: ${JSON.stringify(parsed.documentType)}`);
+  }
 
   return data;
 }

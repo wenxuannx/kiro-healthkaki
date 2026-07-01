@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck } from 'lucide-react'
-import type { ProcessDocumentResponse } from '../types'
+import type { ProcessDocumentResponse, Screen } from '../types'
 
 interface Props {
-  file: File | null
-  onComplete: (data: ProcessDocumentResponse) => void
-  onError: (message: string) => void
+  onNavigate: (s: Screen) => void
+  result: ProcessDocumentResponse | null
+  scanError: boolean
 }
 
 const STAGES = [
@@ -23,94 +23,33 @@ const MESSAGES = [
   'Checking Pioneer, CHAS & Merdeka eligibility',
 ]
 
-function isProcessDocumentResponse(value: unknown): value is ProcessDocumentResponse {
-  if (!value || typeof value !== 'object') return false
-  const candidate = value as Partial<ProcessDocumentResponse>
-  return Boolean(
-    candidate.extracted &&
-    Array.isArray(candidate.extracted.medicalCodes) &&
-    Array.isArray(candidate.extracted.diagnoses) &&
-    Array.isArray(candidate.extracted.prescriptions) &&
-    (candidate.extracted.bill === null || typeof candidate.extracted.bill === 'object') &&
-    typeof candidate.extracted.rawText === 'string' &&
-    Array.isArray(candidate.subsidies) &&
-    typeof candidate.needsManualInput === 'boolean'
-  )
-}
-
-export default function Processing({ file, onComplete, onError }: Props) {
+export default function Processing({ onNavigate, result, scanError }: Props) {
   const [stageIdx, setStageIdx] = useState(0)
   const [msgIdx, setMsgIdx]     = useState(0)
-  const [done, setDone]         = useState(false)
+  const done = !!result
 
+  // Extraction was already kicked off when the file was selected (before Confirm).
+  // This screen just plays the stage animation and navigates once that result lands.
   useEffect(() => {
-    if (!file) {
-      onError('No file selected. Please go back and select a document.')
+    if (scanError) {
+      onNavigate('error')
       return
     }
-
-    const controller = new AbortController()
-    let completionTimer: ReturnType<typeof setTimeout> | undefined
-
-    const callApi = async () => {
-      try {
-        const formData = new FormData()
-        formData.append('file', file)
-
-        const response = await fetch('/api/process-document', {
-          method: 'POST',
-          body: formData,
-          signal: controller.signal,
-        })
-
-        if (!response.ok) {
-          let errorMessage = `Processing failed (status ${response.status})`
-          try {
-            const errorData = await response.json()
-            if (errorData.error) {
-              errorMessage = errorData.error
-            }
-          } catch {
-            // If JSON parsing fails, use the default status-based message
-          }
-          onError(errorMessage)
-          return
-        }
-
-        const data: unknown = await response.json()
-        if (!isProcessDocumentResponse(data)) {
-          onError('The processing service returned an invalid response. Please try again.')
-          return
-        }
-        setStageIdx(STAGES.length - 1)
-        setDone(true)
-        completionTimer = setTimeout(() => onComplete(data), 500)
-      } catch (err) {
-        if (controller.signal.aborted) return
-        if (err instanceof TypeError && err.message.includes('fetch')) {
-          onError('No internet connection. Please check your network and try again.')
-        } else {
-          const msg = err instanceof Error ? err.message : 'An unexpected error occurred'
-          onError(`Processing failed: ${msg}. Please try again.`)
-        }
-      }
+    if (done) {
+      const t = setTimeout(() => onNavigate('results'), 500)
+      return () => clearTimeout(t)
     }
-
-    callApi()
-    return () => {
-      controller.abort()
-      if (completionTimer) clearTimeout(completionTimer)
-    }
-  }, [file, onComplete, onError])
+  }, [done, scanError, onNavigate])
 
   useEffect(() => {
+    if (done) return
     const stageTimer = setInterval(() => setStageIdx(previous => Math.min(previous + 1, STAGES.length - 2)), 1800)
     const msgTimer = setInterval(() => setMsgIdx(p => (p + 1) % MESSAGES.length), 2000)
     return () => {
       clearInterval(stageTimer)
       clearInterval(msgTimer)
     }
-  }, [])
+  }, [done])
 
   const pct = done ? 100 : STAGES[stageIdx].pct
   const r   = 88

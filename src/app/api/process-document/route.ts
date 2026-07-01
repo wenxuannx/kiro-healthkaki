@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateFile, validatePdfPageCount } from "@/lib/file-validator";
 import { processDocument } from "@/lib/ocr-pipeline";
 import { lookupSubsidies } from "@/lib/subsidy-lookup";
+import { createClient } from "@/services/supabase/server";
 import {
   FileValidationError,
   NricRedactionError,
@@ -80,6 +81,36 @@ export async function POST(request: NextRequest) {
       // Step 1: OCR extraction + NRIC redaction (handled internally by processDocument)
       const { extracted } = await processDocument(fileBuffer, file.type);
 
+      // Step 1.5: Persist the file + extraction to Supabase — non-fatal on failure,
+      // since the extraction result is still valuable even if persistence fails.
+      try {
+        const supabase = await createClient();
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(fileName, fileBuffer, { contentType: file.type });
+
+        if (uploadError) {
+          console.error("[process-document] Supabase storage upload failed (non-fatal):", uploadError);
+        } else {
+          const { error: dbError } = await supabase.from("document_submissions").insert({
+            storage_path: uploadData.path,
+            medical_codes: extracted.medicalCodes,
+            diagnoses: extracted.diagnoses,
+            visit_date: extracted.visitDate,
+            institution: extracted.institution,
+            raw_text: extracted.rawText,
+          });
+
+          if (dbError) {
+            console.error("[process-document] Supabase insert into document_submissions failed (non-fatal):", dbError);
+          }
+        }
+      } catch (persistError) {
+        console.error("[process-document] Document persistence failed (non-fatal):", persistError);
+      }
+
       // Step 2: Subsidy lookup — gracefully handle failures
       let subsidies: ProcessDocumentResponse["subsidies"] = [];
       let message: string | null = null;
@@ -125,7 +156,6 @@ export async function POST(request: NextRequest) {
 
     const result = await Promise.race([processingPromise(), timeoutPromise]);
 
-    // Image data is now out of scope — stateless, nothing persisted
     return NextResponse.json(result, { status: 200 });
   } catch (error: unknown) {
     // --- Error mapping with logging ---

@@ -38,8 +38,8 @@ export function mapInstitutionToClinicType(
 /**
  * Filters subsidy schemes by birth year eligibility.
  * A scheme matches if:
- *   - Both eligible_birth_year_min and eligible_birth_year_max are null (no bounds), OR
- *   - birthYear falls within [eligible_birth_year_min, eligible_birth_year_max] (inclusive,
+ *   - Both min_birth_year and max_birth_year are null (no bounds), OR
+ *   - birthYear falls within [min_birth_year, max_birth_year] (inclusive,
  *     treating null min as -Infinity and null max as +Infinity)
  *
  * If birthYear is undefined, all schemes are included (age-gated schemes
@@ -54,8 +54,8 @@ export function filterByBirthYear(
   }
 
   return schemes.filter((scheme) => {
-    const min = scheme.eligible_birth_year_min;
-    const max = scheme.eligible_birth_year_max;
+    const min = scheme.min_birth_year;
+    const max = scheme.max_birth_year;
 
     // No bounds — scheme is not age-gated
     if (min === null && max === null) return true;
@@ -73,53 +73,45 @@ export function filterByBirthYear(
 
 /**
  * Transforms a SubsidyScheme DB row into a SubsidyResult for the API response.
+ * The DB only stores a translated name per language (chinese_name/malay_name/tamil_name) —
+ * there are no separately translated description columns, so coverageDescription and
+ * eligibilityConditions reuse the English description for every language.
  */
 function toSubsidyResult(scheme: SubsidyScheme): SubsidyResult {
-  const translations = {} as Record<
-    SupportedLanguage,
-    {
-      schemeName: string;
-      coverageDescription: string;
-      eligibilityConditions: string;
-    } | null
-  >;
+  const translatedName: Record<SupportedLanguage, string | null> = {
+    "en-SG": scheme.name,
+    "cmn-Hans-CN": scheme.chinese_name,
+    "ms-MY": scheme.malay_name,
+    "ta-IN": scheme.tamil_name,
+  };
 
-  const languages: SupportedLanguage[] = [
-    "en-SG",
-    "cmn-Hans-CN",
-    "ms-MY",
-    "ta-IN",
-  ];
-
-  for (const lang of languages) {
-    const t = scheme.translations[lang];
-    if (t) {
-      translations[lang] = {
-        schemeName: t.scheme_name,
-        coverageDescription: t.coverage_description,
-        eligibilityConditions: t.eligibility_conditions,
-      };
-    } else {
-      translations[lang] = null;
-    }
+  const translations = {} as SubsidyResult["translations"];
+  for (const lang of Object.keys(translatedName) as SupportedLanguage[]) {
+    const name = translatedName[lang];
+    translations[lang] = name
+      ? {
+          schemeName: name,
+          coverageDescription: scheme.description,
+          eligibilityConditions: scheme.description,
+        }
+      : null;
   }
 
   return {
-    schemeName: scheme.scheme_name,
-    coverageDescription: scheme.coverage_description,
-    eligibilityConditions: scheme.eligibility_conditions,
-    estimatedCoveragePercent: scheme.estimated_coverage_percent,
+    schemeName: scheme.name,
+    coverageDescription: scheme.description,
+    eligibilityConditions: scheme.description,
+    estimatedCoveragePercent: scheme.coverage_percentage ?? 0,
     translations,
   };
 }
 
 /**
  * Queries Supabase subsidy_schemes table.
- * Matches on medical codes OR diagnosis keywords.
- * Filters by institution type mapping.
- * Returns empty with message if no codes/diagnoses provided.
- *
- * Requirements: 5.1, 5.2, 5.3, 5.4, 5.5, 5.7
+ * Matches on applicable_codes OR applicable_diagnoses, or is universal
+ * (a scheme with both arrays empty matches everything).
+ * Filters by institution type mapping and birth year.
+ * Returns empty with message if no codes/diagnoses were extracted.
  */
 export async function lookupSubsidies(
   params: SubsidyLookupParams
@@ -127,7 +119,6 @@ export async function lookupSubsidies(
   const { medicalCodes, diagnoses, institution, birthYear, clinicType } =
     params;
 
-  // Requirement 5.7: Skip query if no codes and no diagnoses
   const hasCodes = medicalCodes.length > 0 && medicalCodes.some((c) => c.trim() !== "");
   const hasDiagnoses = diagnoses.length > 0 && diagnoses.some((d) => d.trim() !== "");
 
@@ -146,58 +137,44 @@ export async function lookupSubsidies(
   try {
     const supabase = await createClient();
 
+    const { data, error } = await supabase.from("subsidy_schemes").select("*");
+
+    if (error) {
+      console.error("[subsidy-lookup] Supabase query error:", error.message, error.code);
+      return {
+        subsidies: [],
+        message: "Subsidy lookup unavailable",
+        needsManualInput: false,
+      };
+    }
+
     const nonEmptyCodes = medicalCodes.map((c) => c.trim()).filter(Boolean).slice(0, 50);
-    const nonEmptyDiagnoses = diagnoses.map((d) => d.trim()).filter(Boolean).slice(0, 50);
+    const nonEmptyDiagnoses = diagnoses.map((d) => d.trim().toLowerCase()).filter(Boolean).slice(0, 50);
 
-    let allSchemes: SubsidyScheme[] = [];
+    let allSchemes = (data as SubsidyScheme[]) ?? [];
 
-    if (nonEmptyCodes.length > 0) {
-      const { data, error } = await supabase
-        .from("subsidy_schemes")
-        .select("*")
-        .overlaps("medical_codes", nonEmptyCodes);
+    // A scheme with no applicable_codes/applicable_diagnoses is universal (matches everything).
+    allSchemes = allSchemes.filter((scheme) => {
+      const isUniversal = scheme.applicable_codes.length === 0 && scheme.applicable_diagnoses.length === 0;
+      if (isUniversal) return true;
 
-      if (error) {
-        console.error("[subsidy-lookup] Supabase query error:", error.message, error.code);
-        return {
-          subsidies: [],
-          message: "Subsidy lookup unavailable",
-          needsManualInput: false,
-        };
-      }
-      allSchemes = (data as SubsidyScheme[]) ?? [];
-    }
+      const codeMatch = scheme.applicable_codes.some((c) => nonEmptyCodes.includes(c));
+      const diagnosisMatch = scheme.applicable_diagnoses.some((d) =>
+        nonEmptyDiagnoses.some((docDiagnosis) => docDiagnosis.includes(d.toLowerCase()))
+      );
+      return codeMatch || diagnosisMatch;
+    });
 
-    if (nonEmptyDiagnoses.length > 0) {
-      const { data, error } = await supabase
-        .from("subsidy_schemes")
-        .select("*")
-        .overlaps("condition_keywords", nonEmptyDiagnoses);
-
-      if (error) {
-        console.error("[subsidy-lookup] Supabase query error:", error.message, error.code);
-        return {
-          subsidies: [],
-          message: "Subsidy lookup unavailable",
-          needsManualInput: false,
-        };
-      }
-      const existing = new Map(allSchemes.map((scheme) => [scheme.id, scheme]));
-      for (const scheme of (data as SubsidyScheme[]) ?? []) existing.set(scheme.id, scheme);
-      allSchemes = [...existing.values()];
-    }
-
-    // Filter by clinic type if resolved
+    // Filter by clinic type — empty institution_types means universal.
     if (resolvedClinicType) {
-      allSchemes = allSchemes.filter((scheme) =>
-        scheme.eligible_clinic_types.includes(resolvedClinicType)
+      allSchemes = allSchemes.filter(
+        (scheme) => scheme.institution_types.length === 0 || scheme.institution_types.includes(resolvedClinicType)
       );
     }
 
     // Filter by birth year
     allSchemes = filterByBirthYear(allSchemes, birthYear);
 
-    // Requirement 5.4: Return message if no matches found
     if (allSchemes.length === 0) {
       return {
         subsidies: [],
@@ -207,7 +184,6 @@ export async function lookupSubsidies(
       };
     }
 
-    // Transform to SubsidyResult format
     const subsidies = allSchemes.map(toSubsidyResult);
 
     return {

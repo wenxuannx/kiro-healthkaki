@@ -30,34 +30,20 @@ export interface SubsidyResult {
   >;
 }
 
+// Matches the live `subsidy_schemes` table schema in Supabase.
 export interface SubsidyScheme {
   id: string;
-  scheme_name: string;
-  scheme_type:
-    | "pioneer"
-    | "merdeka"
-    | "chas_blue"
-    | "chas_orange"
-    | "chas_green"
-    | "medisave_cdmp"
-    | "medishield_life"
-    | "medifund";
-  eligible_birth_year_min: number | null;
-  eligible_birth_year_max: number | null;
-  eligible_clinic_types: ("public_hospital" | "polyclinic" | "gp_clinic")[];
-  medical_codes: string[];
-  condition_keywords: string[];
-  coverage_description: string;
-  eligibility_conditions: string;
-  estimated_coverage_percent: number;
-  translations: Record<
-    SupportedLanguage,
-    {
-      scheme_name: string;
-      coverage_description: string;
-      eligibility_conditions: string;
-    } | null
-  >;
+  name: string;
+  chinese_name: string | null;
+  malay_name: string | null;
+  tamil_name: string | null;
+  description: string;
+  coverage_percentage: number | null;
+  applicable_codes: string[];
+  applicable_diagnoses: string[];
+  min_birth_year: number | null;
+  max_birth_year: number | null;
+  institution_types: string[];
 }
 
 // --- Document Extraction Types ---
@@ -80,6 +66,8 @@ export interface ExtractedBill {
   items: ExtractedBillItem[];
 }
 
+export type DocumentTypeId = "invoice" | "referral" | "diagnosis" | "prescription" | "followup" | "specialist";
+
 export interface RawExtractedData {
   medicalCodes: string[];
   diagnoses: string[];
@@ -88,6 +76,7 @@ export interface RawExtractedData {
   rawText: string;
   prescriptions: ExtractedPrescription[];
   bill: ExtractedBill | null;
+  documentType: DocumentTypeId | null;
 }
 
 export interface RedactedExtractedData {
@@ -98,6 +87,7 @@ export interface RedactedExtractedData {
   rawText: string; // All NRIC patterns replaced with [REDACTED]
   prescriptions: ExtractedPrescription[];
   bill: ExtractedBill | null;
+  documentType: DocumentTypeId | null;
 }
 
 export type ExtractedDocumentData = RedactedExtractedData;
@@ -447,21 +437,6 @@ export interface ScanResult {
   subsidies: SubsidyCard[];
   medications?: Medication[];
   billLines?: BillLine[];
-}
-
-export interface SubsidyScheme {
-  id: string
-  name: string
-  chinese_name: string | null
-  malay_name: string | null
-  tamil_name: string | null
-  description: string
-  institution_types: string[]
-  coverage_percentage: number | null
-  applicable_codes: string[]
-  applicable_diagnoses: string[]
-  min_birth_year: number | null
-  max_birth_year: number | null
 }
 
 export interface HistoryItem {

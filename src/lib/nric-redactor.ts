@@ -161,6 +161,7 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       medicalCodes: redactedMedicalCodes,
       prescriptions: redactedPrescriptions,
       bill: redactedBill,
+      documentType: data.documentType,
     };
   } catch (error) {
     // Re-throw NricRedactionError as-is
