@@ -449,6 +449,21 @@ export interface ScanResult {
   billLines?: BillLine[];
 }
 
+export interface SubsidyScheme {
+  id: string
+  name: string
+  chinese_name: string | null
+  malay_name: string | null
+  tamil_name: string | null
+  description: string
+  institution_types: string[]
+  coverage_percentage: number | null
+  applicable_codes: string[]
+  applicable_diagnoses: string[]
+  min_birth_year: number | null
+  max_birth_year: number | null
+}
+
 export interface HistoryItem {
   id: string;
   date: string;
