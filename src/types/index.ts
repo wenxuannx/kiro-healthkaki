@@ -72,6 +72,39 @@ export interface ScanResult {
   billLines?: BillLine[]
 }
 
+export interface SubsidyScheme {
+  id: string
+  name: string
+  chinese_name: string | null
+  malay_name: string | null
+  tamil_name: string | null
+  description: string
+  institution_types: string[]
+  coverage_percentage: number | null
+  applicable_codes: string[]
+  applicable_diagnoses: string[]
+  min_birth_year: number | null
+  max_birth_year: number | null
+}
+
+export type DocumentTypeId = 'invoice' | 'referral' | 'diagnosis' | 'prescription' | 'followup' | 'specialist'
+
+export interface ExtractedDocument {
+  medicalCodes: string[]
+  diagnoses: string[]
+  visitDate: string | null
+  institution: string | null
+  documentType: DocumentTypeId | null
+  rawText: string
+}
+
+export interface ProcessDocumentResponse {
+  submission: { id: string; storage_path: string; created_at: string }
+  extracted: ExtractedDocument
+  subsidies: SubsidyScheme[]
+  subsidiesMessage: string | null
+}
+
 export interface HistoryItem {
   id: string
   date: string

@@ -1,42 +1,56 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { ShieldCheck } from 'lucide-react'
-import type { Screen } from '../types'
+import type { ProcessDocumentResponse, Screen } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void }
+interface Props {
+  onNavigate: (s: Screen) => void
+  result: ProcessDocumentResponse | null
+  scanError: boolean
+}
 
 const STAGES = [
-  { label: 'Scanning document…',       sub: 'Reading text and medical codes',          pct: 25 },
-  { label: 'Removing personal data…',  sub: 'Stripping NRIC and sensitive details',    pct: 50 },
-  { label: 'Checking your subsidies…', sub: 'Matching against MOH subsidy frameworks', pct: 75 },
-  { label: 'Calculating final cost…',  sub: 'Preparing your personalised breakdown',   pct: 100 },
+  { label: 'Uploading your document…',  sub: 'Sending your file securely',        pct: 25 },
+  { label: 'Reading your document…',    sub: 'Extracting text and medical codes', pct: 50 },
+  { label: 'Finding your subsidies…',   sub: 'Matching against MOH subsidy schemes', pct: 75 },
+  { label: 'Almost done…',              sub: 'Preparing your results',            pct: 90 },
 ]
 
 const MESSAGES = [
   'Your data is processed securely',
-  'We never store your documents',
   'NRIC details removed automatically',
   'Checking Pioneer, CHAS & Merdeka eligibility',
 ]
 
-export default function Processing({ onNavigate }: Props) {
+export default function Processing({ onNavigate, result, scanError }: Props) {
   const [stageIdx, setStageIdx] = useState(0)
   const [msgIdx, setMsgIdx]     = useState(0)
-  const [done, setDone]         = useState(false)
+  const done = !!result
+
+  // Extraction was already kicked off when the file was selected (before Confirm).
+  // This screen just plays the stage animation and navigates once that result lands.
+  useEffect(() => {
+    if (scanError) {
+      onNavigate('error')
+      return
+    }
+    if (done) {
+      const t = setTimeout(() => onNavigate('results'), 700)
+      return () => clearTimeout(t)
+    }
+  }, [done, scanError, onNavigate])
 
   useEffect(() => {
-    const durations = [1800, 1500, 2000, 1500]
-    let elapsed = 0
-    STAGES.forEach((_, i) => {
-      setTimeout(() => {
-        if (i < STAGES.length - 1) setStageIdx(i + 1)
-        else { setDone(true); setTimeout(() => onNavigate('results'), 800) }
-      }, elapsed + durations[i])
-      elapsed += durations[i]
-    })
+    if (done) return
+    const stageTimer = setInterval(() => {
+      setStageIdx(i => (i < STAGES.length - 1 ? i + 1 : i))
+    }, 1300)
     const msgTimer = setInterval(() => setMsgIdx(p => (p + 1) % MESSAGES.length), 2000)
-    return () => clearInterval(msgTimer)
-  }, [onNavigate])
+    return () => {
+      clearInterval(stageTimer)
+      clearInterval(msgTimer)
+    }
+  }, [done])
 
   const pct = done ? 100 : STAGES[stageIdx].pct
   const r   = 88

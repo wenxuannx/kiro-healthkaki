@@ -17,7 +17,7 @@ import HelpScreen        from './screens/Help'
 import SettingsScreen    from './screens/Settings'
 import ErrorScreen       from './screens/ErrorScreen'
 
-import type { Screen, SubsidyCard } from './types'
+import type { ProcessDocumentResponse, Screen } from './types'
 
 const SHOW_NAV: Screen[] = ['home', 'history', 'help', 'settings']
 
@@ -38,13 +38,36 @@ function AppInner() {
   const [screen, setScreen]           = useState<Screen>('home')
   const [prevScreen, setPrev]         = useState<Screen>('home')
   const [file, setFile]               = useState<File | null>(null)
-  const [selectedSubsidy, setSubsidy] = useState<SubsidyCard | null>(null)
+  const [scanResult, setScanResult]   = useState<ProcessDocumentResponse | null>(null)
+  const [scanError, setScanError]     = useState(false)
   const { language } = useLang()
 
   const navigate = useCallback((next: Screen) => {
     setPrev(screen)
     setScreen(next)
   }, [screen])
+
+  // Kicks off the Gemini extraction + subsidy lookup as soon as a file is picked,
+  // so the real detected document type is ready by the time the user reaches Confirm.
+  const processFile = useCallback((selected: File) => {
+    setFile(selected)
+    setScanResult(null)
+    setScanError(false)
+
+    const formData = new FormData()
+    formData.append('file', selected)
+
+    fetch('/api/process-document', { method: 'POST', body: formData })
+      .then(async res => {
+        if (!res.ok) {
+          const body = await res.json().catch(() => ({}))
+          throw new Error(body.error ?? 'Processing failed')
+        }
+        return res.json() as Promise<ProcessDocumentResponse>
+      })
+      .then(setScanResult)
+      .catch(() => setScanError(true))
+  }, [])
 
   const dir = SCREEN_ORDER.indexOf(screen) >= SCREEN_ORDER.indexOf(prevScreen) ? 1 : -1
   const showNav = SHOW_NAV.includes(screen)
@@ -58,19 +81,19 @@ function AppInner() {
 
   const renderScreen = () => {
     switch (screen) {
-      case 'home':        return <HomeScreen onNavigate={navigate} />
-      case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={setFile} />
-      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} />
-      case 'processing':  return <ProcessingScreen onNavigate={navigate} />
-      case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} />
+      case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
+      case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={processFile} />
+      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} result={scanResult} scanError={scanError} />
+      case 'processing':  return <ProcessingScreen onNavigate={navigate} result={scanResult} scanError={scanError} />
+      case 'results':     return <ResultsScreen onNavigate={navigate} result={scanResult} />
       case 'bill':        return <BillScreen onNavigate={navigate} />
       case 'medications': return <MedicationsScreen onNavigate={navigate} />
-      case 'details':     return <DetailsScreen onNavigate={navigate} subsidy={selectedSubsidy} />
+      case 'details':     return <DetailsScreen onNavigate={navigate} subsidy={null} />
       case 'history':     return <HistoryScreen onNavigate={navigate} />
       case 'help':        return <HelpScreen onNavigate={navigate} />
       case 'settings':    return <SettingsScreen onNavigate={navigate} />
-      case 'error':       return <ErrorScreen onNavigate={navigate} errorType="upload" />
-      default:            return <HomeScreen onNavigate={navigate} />
+      case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" />
+      default:            return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
     }
   }
 

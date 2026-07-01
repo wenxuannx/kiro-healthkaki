@@ -1,10 +1,11 @@
+import { useRef } from 'react'
 import { motion } from 'framer-motion'
 import { ScanLine, ImageUp, HelpCircle, ShieldCheck, ArrowRight, Settings } from 'lucide-react'
 const healthkakiLogo = '/healthkaki_logo.png'
 import { Button } from '../components/ui'
 import type { Screen } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void }
+interface Props { onNavigate: (s: Screen) => void; onFileReady: (f: File) => void }
 
 // Document types from the spec image, grouped by timing
 const BEFORE_VISIT = [
@@ -51,7 +52,15 @@ const DURING_CARE = [
   },
 ]
 
-export default function Home({ onNavigate }: Props) {
+export default function Home({ onNavigate, onFileReady }: Props) {
+  const galleryInput = useRef<HTMLInputElement>(null)
+
+  const handleGalleryFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (file) { onFileReady(file); onNavigate('confirm') }
+    e.target.value = ''
+  }
+
   return (
     <div className="min-h-full bg-neutral-50 flex flex-col">
       {/* Header */}
@@ -98,11 +107,13 @@ export default function Home({ onNavigate }: Props) {
             <ScanLine className="w-5 h-5" />
             Scan Medical Document
           </Button>
-          <Button variant="teal" size="lg" fullWidth onClick={() => onNavigate('confirm')} className="gap-2.5">
+          <Button variant="teal" size="lg" fullWidth onClick={() => galleryInput.current?.click()} className="gap-2.5">
             <ImageUp className="w-5 h-5" />
             Upload from Gallery
           </Button>
         </motion.div>
+
+        <input ref={galleryInput} type="file" accept="image/*,.pdf" className="hidden" onChange={handleGalleryFile} />
 
         {/* Document guide: Before visit */}
         <motion.div

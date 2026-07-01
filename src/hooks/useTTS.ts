@@ -69,6 +69,31 @@ export function buildResultsSummary(
   }
 }
 
+/* Build a natural-language summary for the results screen from real scan data */
+export function buildScanSummary(
+  language: Language,
+  institution: string | null,
+  subsidyNames: string[],
+  subsidiesMessage: string | null
+): string {
+  const clinic = institution ?? (language === 'zh' ? '您的医疗机构' : language === 'ms' ? 'kemudahan penjagaan kesihatan anda' : language === 'ta' ? 'உங்கள் மருத்துவ நிறுவனம்' : 'your healthcare facility')
+  if (subsidiesMessage) {
+    switch (language) {
+      case 'zh': return `您好。您在${clinic}的文件已分析完成。${subsidiesMessage}`
+      case 'ms': return `Selamat datang. Dokumen anda di ${clinic} telah dianalisis. ${subsidiesMessage}`
+      case 'ta': return `வணக்கம். ${clinic} இல் உங்கள் ஆவணம் பகுப்பாய்வு செய்யப்பட்டது. ${subsidiesMessage}`
+      default:   return `Hello. Your document from ${clinic} has been analysed. ${subsidiesMessage}`
+    }
+  }
+  const schemes = subsidyNames.join(', ')
+  switch (language) {
+    case 'zh': return `您好。您在${clinic}的文件已分析完成。您可能符合以下津贴资格：${schemes}。`
+    case 'ms': return `Selamat datang. Dokumen anda di ${clinic} telah dianalisis. Anda mungkin layak untuk: ${schemes}.`
+    case 'ta': return `வணக்கம். ${clinic} இல் உங்கள் ஆவணம் பகுப்பாய்வு செய்யப்பட்டது. நீங்கள் தகுதி பெறக்கூடிய மானியங்கள்: ${schemes}.`
+    default:   return `Hello. Your document from ${clinic} has been analysed. You may be eligible for: ${schemes}.`
+  }
+}
+
 /* Build medication reminder speech */
 export function buildMedSummary(language: Language, medName: string, purpose: string, frequency: string, timing: string): string {
   switch (language) {
