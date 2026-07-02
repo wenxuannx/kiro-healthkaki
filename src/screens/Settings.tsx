@@ -4,6 +4,7 @@ import { Card, Toggle, TopBar } from '../components/ui'
 import { useLang, T } from '../hooks/i18n'
 import { useTTS } from '../hooks/useTTS'
 import TTSButton from '../components/TTSButton'
+import VoiceWarning from '../components/VoiceWarning'
 import { useTextSize, useHighContrast } from '../App'
 import type { Language, Screen } from '../types'
 
@@ -23,7 +24,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 export default function Settings({}: Props) {
   const { language, setLanguage } = useLang()
   const t = T[language]
-  const { toggle, speaking, rate, setRate, supported } = useTTS(language)
+  const { toggle, speaking, rate, setRate, supported, error: ttsError } = useTTS(language)
   const preview = language === 'zh' ? '您好，这是语音朗读测试。' : language === 'ms' ? 'Helo, ini adalah ujian bacaan suara.' : language === 'ta' ? 'வணக்கம், இது குரல் வாசிப்பு சோதனை.' : 'Hello, this is a text-to-speech test.'
   const { step: textStep, setStep: setTextStep } = useTextSize()
   const { highContrast, setHighContrast } = useHighContrast()
@@ -42,7 +43,7 @@ export default function Settings({}: Props) {
         </Section>
 
         <Section icon={Volume2} title={t.tts_section}>
-          {supported ? <><div className="flex justify-between text-sm text-neutral-500 mb-2"><span>{t.reading_speed}</span><span className="font-semibold text-teal-700">{rate.toFixed(2)}×</span></div><input type="range" min="0.5" max="1.5" step="0.05" value={rate} onChange={event => setRate(Number(event.target.value))} className="w-full accent-teal-700 mb-4" aria-label={t.reading_speed} /><TTSButton text={preview} speaking={speaking} onToggle={toggle} size="md" className="w-full justify-center" /></> : <p className="text-sm text-neutral-500">{t.tts_unsupported}</p>}
+          {supported ? <><div className="flex justify-between text-sm text-neutral-500 mb-2"><span>{t.reading_speed}</span><span className="font-semibold text-teal-700">{rate.toFixed(2)}×</span></div><input type="range" min="0.5" max="1.5" step="0.05" value={rate} onChange={event => setRate(Number(event.target.value))} className="w-full accent-teal-700 mb-4" aria-label={t.reading_speed} /><TTSButton text={preview} speaking={speaking} onToggle={toggle} size="md" className="w-full justify-center" /><VoiceWarning language={language} visible={ttsError} className="mt-3" /></> : <p className="text-sm text-neutral-500">{t.tts_unsupported}</p>}
         </Section>
 
         <Section icon={Type} title={t.accessibility}>
