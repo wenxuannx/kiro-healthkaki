@@ -104,8 +104,8 @@ information is never stored on any server.
 
 #### Acceptance Criteria
 
-1. WHEN subsidy results are available, THE HealthKaki_App SHALL display each applicable subsidy scheme as a distinct card with the scheme name, coverage description, and eligibility conditions, ordered by estimated coverage amount from highest to lowest
-2. THE HealthKaki_App SHALL use a minimum font size of 18px for body text and 24px for headings in the results display
+1. WHEN subsidy results are available, THE HealthKaki_App SHALL display each applicable subsidy scheme as a distinct card with the scheme name and estimated coverage percentage, ordered by estimated coverage percentage from highest to lowest; users MAY open a card to view additional scheme details
+2. THE HealthKaki_App SHALL present the results with a clear, readable type hierarchy and SHALL allow the user to adjust the interface text size from extra small through extra large using the accessibility settings
 3. THE HealthKaki_App SHALL use high-contrast colours meeting WCAG 2.1 AA contrast ratio requirements (minimum 4.5:1 for body text)
 4. WHEN subsidy results are displayed, THE HealthKaki_App SHALL include a summary section at the top showing the total number of applicable schemes found
 5. THE HealthKaki_App SHALL display results in the user's selected language, supporting English (default), Simplified Chinese, Bahasa Melayu, and Tamil, controlled by the same language toggle used by the TTS_Module. WHERE a translation for a subsidy scheme is unavailable in the selected language, THE HealthKaki_App SHALL fall back to displaying that scheme's card in English.
