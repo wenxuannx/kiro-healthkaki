@@ -160,6 +160,10 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       return result.redactedText;
     });
 
+    const redactedReferralType = data.referralType === null ? null : redactNric(data.referralType).redactedText;
+    const redactedAppointmentDateTime = data.appointmentDateTime === null ? null : redactNric(data.appointmentDateTime).redactedText;
+    const redactedAppointmentCenterTel = data.appointmentCenterTel === null ? null : redactNric(data.appointmentCenterTel).redactedText;
+
     return {
       rawText: rawTextResult.redactedText,
       institution: redactedInstitution,
@@ -170,6 +174,9 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       bill: redactedBill,
       claimedSubsidies: redactedClaimedSubsidies,
       documentType: data.documentType,
+      referralType: redactedReferralType,
+      appointmentDateTime: redactedAppointmentDateTime,
+      appointmentCenterTel: redactedAppointmentCenterTel,
     };
   } catch (error) {
     // Re-throw NricRedactionError as-is

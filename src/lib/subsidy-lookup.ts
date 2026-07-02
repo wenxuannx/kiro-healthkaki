@@ -22,6 +22,17 @@ export function mapInstitutionToClinicType(
   const lower = institution.toLowerCase();
 
   if (lower.includes("hospital")) return "public_hospital";
+  // National/specialist centres (SNEC, National Heart Centre, National Cancer
+  // Centre, National Skin Centre, National Dental Centre, National
+  // Neuroscience Institute, etc.) are hospital-tier Specialist Outpatient
+  // Clinics for subsidy purposes, not neighbourhood GP clinics — despite
+  // "centre"/"institute" in the name looking similar to a GP "medical centre".
+  if (
+    lower.includes("national") &&
+    (lower.includes("centre") || lower.includes("center") || lower.includes("institute"))
+  ) {
+    return "public_hospital";
+  }
   if (lower.includes("polyclinic")) return "polyclinic";
   if (
     lower.includes("clinic") ||
@@ -69,6 +80,26 @@ export function filterByBirthYear(
 
     // Both bounds
     return birthYear >= min! && birthYear <= max!;
+  });
+}
+
+/**
+ * Filters subsidy schemes by current age (schemes with a min_age threshold,
+ * e.g. Flexi-MediSave's "age 60 and above" — evaluated against today's date,
+ * unlike filterByBirthYear's fixed historical cohorts). A scheme with
+ * min_age === null has no age gate and always passes. If birthYear is
+ * undefined, age-gated schemes are excluded (cannot confirm eligibility).
+ */
+export function filterByMinAge(
+  schemes: SubsidyScheme[],
+  birthYear: number | undefined
+): SubsidyScheme[] {
+  const currentYear = new Date().getFullYear();
+
+  return schemes.filter((scheme) => {
+    if (scheme.min_age === null) return true;
+    if (birthYear === undefined) return false;
+    return currentYear - birthYear >= scheme.min_age;
   });
 }
 
@@ -159,12 +190,62 @@ function excludeIncomeTierIfCohortMatched(
 }
 
 /**
+ * Diagnoses recognised by the MediSave Chronic Disease Management Programme —
+ * also used to decide whether a CHAS visit is priced at the "common illness"
+ * rate or the (higher) chronic simple/complex rate. Kept in sync with the
+ * `applicable_diagnoses` on the "MediSave Chronic Disease Management
+ * Programme" row in `subsidy_schemes`.
+ */
+const CDMP_DIAGNOSES = [
+  "hypertension",
+  "diabetes",
+  "lipid_disorder",
+  "stroke",
+  "chronic_kidney_disease",
+  "asthma",
+  "copd",
+];
+
+/**
+ * Resolves the flat dollar amount for a scheme priced as a fixed amount
+ * rather than a percentage, from the scheme's consolidated pricing_tiers.
+ *   - Tiered schemes (keyed by "common"/"chronic_simple"/"chronic_complex" —
+ *     CHAS, MediSave-CDMP): chosen by how many CDMP-listed chronic diagnoses
+ *     were extracted (0 / 1 / 2+ matches).
+ *   - Untiered schemes (keyed by "flat" — Flexi-MediSave, MediSave outpatient
+ *     scans): a single amount regardless of diagnosis.
+ * Returns null for schemes with no pricing_tiers, or when the resolved tier
+ * has no subsidy for this visit type (e.g. CHAS Green pays nothing for
+ * common illnesses).
+ */
+function resolveFlatAmount(
+  scheme: SubsidyScheme,
+  diagnoses: string[]
+): { amount: number | null; period: "visit" | "year" | null } {
+  const tiers = scheme.pricing_tiers;
+  if (!tiers) return { amount: null, period: null };
+
+  const chronicMatches = diagnoses.filter((d) => CDMP_DIAGNOSES.includes(d)).length;
+
+  const amount =
+    "flat" in tiers
+      ? (tiers.flat ?? null)
+      : chronicMatches >= 2
+        ? (tiers.chronic_complex ?? null)
+        : chronicMatches === 1
+          ? (tiers.chronic_simple ?? null)
+          : (tiers.common ?? null);
+
+  return { amount, period: scheme.pricing_period };
+}
+
+/**
  * Transforms a SubsidyScheme DB row into a SubsidyResult for the API response.
  * The DB only stores a translated name per language (chinese_name/malay_name/tamil_name) —
  * there are no separately translated description columns, so coverageDescription and
  * eligibilityConditions reuse the English description for every language.
  */
-function toSubsidyResult(scheme: SubsidyScheme): SubsidyResult {
+function toSubsidyResult(scheme: SubsidyScheme, diagnoses: string[]): SubsidyResult {
   const translatedName: Record<SupportedLanguage, string | null> = {
     "en-SG": scheme.name,
     "cmn-Hans-CN": scheme.chinese_name,
@@ -184,11 +265,38 @@ function toSubsidyResult(scheme: SubsidyScheme): SubsidyResult {
       : null;
   }
 
+  const { amount, period } = resolveFlatAmount(scheme, diagnoses);
+
+  // Some schemes have neither a flat modelled amount nor a coverage
+  // percentage — their real payout depends on data this pipeline doesn't
+  // extract (MediShield Life's day-rate/claim-limit tables; MediFund's
+  // discretionary, human-reviewed process; MediSave's heavy-therapy and
+  // vaccination/screening schedules, which vary per drug/vaccine rather than
+  // being a single dollar figure). Showing "0%" there would read as "no help
+  // available", which is wrong — show an explanatory note instead.
+  const schemeNameLower = scheme.name.toLowerCase();
+  const coverageNote =
+    scheme.coverage_percentage === null && amount === null
+      ? schemeNameLower.includes("medifund")
+        ? "Case-by-case — apply through a Medical Social Worker at the hospital."
+        : schemeNameLower.includes("vaccination") || schemeNameLower.includes("screening")
+          ? "Often covered up to a fixed amount per vaccine/screening — check with the clinic which ones qualify."
+          : schemeNameLower.includes("heavy medical") || schemeNameLower.includes("dialysis")
+            ? "Heavily subsidised for ongoing treatment — check the exact amount with the hospital billing counter."
+            : schemeNameLower.includes("medishield")
+              ? "Covers large hospital bills and selected costly outpatient treatments, up to $200,000 a year. You pay a co-insurance share starting at 10% (higher for larger bills), after a deductible of $1,500–$3,000 depending on your ward class and age. Ask the billing counter how much of your specific bill MediShield Life has claimed."
+              : "Coverage depends on your specific treatment and claim limits — check with the hospital billing counter."
+      : null;
+
   return {
+    schemeId: scheme.id,
     schemeName: scheme.name,
     coverageDescription: scheme.description,
     eligibilityConditions: scheme.description,
     estimatedCoveragePercent: scheme.coverage_percentage ?? 0,
+    estimatedAmount: amount,
+    estimatedAmountPeriod: amount !== null ? period : null,
+    coverageNote,
     translations,
   };
 }
@@ -242,6 +350,7 @@ export async function lookupSubsidies(
     medicalCodes,
     diagnoses,
     claimedSubsidies = [],
+    billItemDescriptions = [],
     institution,
     birthYear,
     clinicType,
@@ -253,8 +362,17 @@ export async function lookupSubsidies(
   const hasCodes = medicalCodes.length > 0 && medicalCodes.some((c) => c.trim() !== "");
   const hasDiagnoses = diagnoses.length > 0 && diagnoses.some((d) => d.trim() !== "");
   const hasClaims = claimedSubsidies.length > 0 && claimedSubsidies.some((c) => c.trim() !== "");
+  const hasBillItems = billItemDescriptions.length > 0 && billItemDescriptions.some((d) => d.trim() !== "");
 
-  if (!hasCodes && !hasDiagnoses && !hasClaims) {
+  // Diagnosis/code/claim/procedure-gated schemes (e.g. MediSave CDMP,
+  // outpatient scans) can't be inferred without at least one of those
+  // signals. But "universal" schemes (empty applicable_codes/
+  // applicable_diagnoses/applicable_procedures — MediShield Life, MediFund,
+  // Pioneer/Merdeka) are only gated on institution/citizenship/birth year, so
+  // a bare payment receipt with an identifiable institution and no clinical
+  // detail should still be able to surface those, rather than bailing out
+  // entirely.
+  if (!hasCodes && !hasDiagnoses && !hasClaims && !hasBillItems && !institution) {
     return {
       subsidies: [],
       message: "Insufficient data was extracted to determine subsidy eligibility",
@@ -283,17 +401,27 @@ export async function lookupSubsidies(
     const nonEmptyCodes = medicalCodes.map((c) => c.trim()).filter(Boolean).slice(0, 50);
     const nonEmptyDiagnoses = diagnoses.map((d) => d.trim().toLowerCase()).filter(Boolean).slice(0, 50);
     const nonEmptyClaims = claimedSubsidies.map((c) => c.trim().toLowerCase()).filter(Boolean).slice(0, 50);
+    const nonEmptyBillItems = billItemDescriptions.map((d) => d.trim().toLowerCase()).filter(Boolean).slice(0, 50);
 
     let allSchemes = (data as SubsidyScheme[]) ?? [];
 
-    // A scheme with no applicable_codes/applicable_diagnoses is universal (matches everything).
+    // A scheme with no applicable_codes/applicable_diagnoses/applicable_procedures is universal (matches everything).
     allSchemes = allSchemes.filter((scheme) => {
-      const isUniversal = scheme.applicable_codes.length === 0 && scheme.applicable_diagnoses.length === 0;
+      const isUniversal =
+        scheme.applicable_codes.length === 0 &&
+        scheme.applicable_diagnoses.length === 0 &&
+        scheme.applicable_procedures.length === 0;
       if (isUniversal) return true;
 
       const codeMatch = scheme.applicable_codes.some((c) => nonEmptyCodes.includes(c));
       const diagnosisMatch = scheme.applicable_diagnoses.some((d) =>
         nonEmptyDiagnoses.some((docDiagnosis) => docDiagnosis.includes(d.toLowerCase()))
+      );
+      // A bill line item mentioning a gated procedure (e.g. "CT Scan") is
+      // evidence of eligibility for procedure-gated schemes like MediSave's
+      // outpatient scan cap, independent of diagnosis extraction.
+      const procedureMatch = scheme.applicable_procedures.some((p) =>
+        nonEmptyBillItems.some((item) => item.includes(p.toLowerCase()))
       );
       // A bill that explicitly names this scheme as a claim/payer (e.g. "Claim from CHAS")
       // is itself evidence of eligibility, regardless of diagnosis/code extraction.
@@ -301,7 +429,7 @@ export async function lookupSubsidies(
       const claimMatch = nonEmptyClaims.some(
         (claim) => schemeName.includes(claim) || claim.includes(schemeName)
       );
-      return codeMatch || diagnosisMatch || claimMatch;
+      return codeMatch || diagnosisMatch || procedureMatch || claimMatch;
     });
 
     // Filter by clinic type — empty institution_types means universal.
@@ -311,15 +439,28 @@ export async function lookupSubsidies(
       );
     }
 
-    // Filter by birth year, income per capita, and citizenship
+    // Filter by birth year, current age, income per capita, and citizenship
     allSchemes = filterByBirthYear(allSchemes, birthYear);
+    allSchemes = filterByMinAge(allSchemes, birthYear);
     allSchemes = filterByIncomePerCapita(allSchemes, incomePerCapita);
     allSchemes = filterByCitizenship(allSchemes, citizenshipStatus, citizenshipYear);
 
     // Pioneer/Merdeka Generation supersedes standard CHAS tiers when matched.
     allSchemes = excludeIncomeTierIfCohortMatched(allSchemes, birthYear);
 
-    if (allSchemes.length === 0) {
+    let subsidies = allSchemes.map((scheme) => toSubsidyResult(scheme, nonEmptyDiagnoses));
+
+    // A CHAS tier that resolves to no subsidy for this visit (e.g. CHAS
+    // Green pays nothing for a common illness) isn't a real match — drop it
+    // rather than showing a $0 "eligible" card.
+    subsidies = subsidies.filter((s) => {
+      const scheme = allSchemes.find((sc) => sc.name === s.schemeName);
+      const hasFlatPricing = scheme && scheme.pricing_tiers !== null;
+      if (!hasFlatPricing) return true;
+      return s.estimatedAmount !== null && s.estimatedAmount > 0;
+    });
+
+    if (subsidies.length === 0) {
       return {
         subsidies: [],
         message:
@@ -327,8 +468,6 @@ export async function lookupSubsidies(
         needsManualInput: false,
       };
     }
-
-    const subsidies = allSchemes.map(toSubsidyResult);
 
     // Translate the scheme descriptions into the non-English languages.
     // Scheme NAMES already come pre-translated from the DB columns; here we

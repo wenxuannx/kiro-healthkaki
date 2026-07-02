@@ -16,10 +16,27 @@ export type ProcessingStage =
 // --- Subsidy Types ---
 
 export interface SubsidyResult {
+  // The subsidy_schemes.id this result came from — used to look up richer
+  // static content (benefits list, how-to-use instructions) that doesn't
+  // vary per lookup, so isn't worth storing per-request.
+  schemeId: string;
   schemeName: string;
   coverageDescription: string;
   eligibilityConditions: string;
   estimatedCoveragePercent: number;
+  // Flat dollar subsidy amount, when the scheme is priced as a fixed amount
+  // rather than as a percentage. Null for percentage-based schemes
+  // (Pioneer/Merdeka/MediShield/MediFund).
+  estimatedAmount: number | null;
+  // Whether estimatedAmount is a per-visit subsidy (CHAS tiers) or an annual
+  // withdrawal cap (MediSave CDMP). Null when estimatedAmount is null.
+  estimatedAmountPeriod: "visit" | "year" | null;
+  // Set when neither a coverage percentage nor a flat amount could be
+  // determined (MediShield Life's claim limits and MediFund's discretionary
+  // payouts aren't modelled) — a short explanation to show instead of a
+  // misleading "0%". Null whenever estimatedCoveragePercent or estimatedAmount
+  // is meaningful.
+  coverageNote: string | null;
   translations: Record<
     SupportedLanguage,
     {
@@ -44,6 +61,11 @@ export interface SubsidyScheme {
   coverage_percentage: number | null;
   applicable_codes: string[];
   applicable_diagnoses: string[];
+  // Bill line-item keywords this scheme is gated on (e.g. "ct scan", "mri" for
+  // MediSave outpatient scans) — matched against extracted bill item
+  // descriptions, unlike applicable_diagnoses which matches diagnosis text.
+  // Empty for every other scheme.
+  applicable_procedures: string[];
   min_birth_year: number | null;
   max_birth_year: number | null;
   institution_types: string[];
@@ -51,6 +73,27 @@ export interface SubsidyScheme {
   max_income_per_capita: number | null;
   citizenship_required: "citizen" | "citizen_or_pr" | null;
   citizenship_by_year: number | null;
+  // Minimum current age (in years, evaluated against today's date, NOT a
+  // fixed birth-year cohort like min_birth_year/max_birth_year) required for
+  // this scheme — used for Flexi-MediSave ("age 60 and above"). Null for
+  // every other scheme.
+  min_age: number | null;
+  // Consolidated flat-dollar pricing model, used by every scheme priced as a
+  // fixed amount rather than a percentage (CHAS tiers, MediSave-CDMP,
+  // Flexi-MediSave, MediSave outpatient scans, and any future flat-dollar
+  // scheme) — replaces what used to be a separate pair of DB columns per
+  // scheme. Keys are either:
+  //   - "common" / "chronic_simple" / "chronic_complex", chosen by how many
+  //     CDMP-listed chronic diagnoses were matched (0 / 1 / 2+) — used by
+  //     schemes tiered by diagnosis count (CHAS, MediSave-CDMP), or
+  //   - "flat", a single untiered amount — used by schemes that don't vary
+  //     by diagnosis (Flexi-MediSave, MediSave outpatient scans).
+  // Null for percentage-based schemes (Pioneer/Merdeka/MediShield/MediFund).
+  pricing_tiers: Record<string, number> | null;
+  // Whether pricing_tiers is a per-visit subsidy (CHAS) or an annual
+  // withdrawal cap (MediSave-CDMP/Flexi-MediSave/outpatient scans). Null when
+  // pricing_tiers is null.
+  pricing_period: "visit" | "year" | null;
 }
 
 // --- Document Extraction Types ---
@@ -101,6 +144,10 @@ export interface RawExtractedData {
   documentType: DocumentTypeId | null;
   // Payer/subsidy names itemised as a claim or deduction on a bill (e.g. "CHAS", "MediSave").
   claimedSubsidies: string[];
+  // Referral-letter-only fields (null for other document types).
+  referralType: string | null; // e.g. "FAST TRACK", "Routine"
+  appointmentDateTime: string | null; // printed as-is, often left blank on the letter
+  appointmentCenterTel: string | null;
 }
 
 export interface RedactedExtractedData {
@@ -113,6 +160,9 @@ export interface RedactedExtractedData {
   bill: ExtractedBill | null;
   documentType: DocumentTypeId | null;
   claimedSubsidies: string[];
+  referralType: string | null;
+  appointmentDateTime: string | null;
+  appointmentCenterTel: string | null;
 }
 
 export type ExtractedDocumentData = RedactedExtractedData;
@@ -132,6 +182,10 @@ export interface SubsidyLookupParams {
   diagnoses: string[];
   // Payer/subsidy names itemised as a claim or deduction on a bill (e.g. "CHAS", "MediSave").
   claimedSubsidies?: string[];
+  // Bill line-item descriptions (e.g. "CT Scan", "Consultation Fee") — used to
+  // detect procedure-gated schemes like MediSave's outpatient scan cap, which
+  // isn't triggered by a diagnosis.
+  billItemDescriptions?: string[];
   institution: string | null;
   birthYear?: number;
   clinicType?: "public_hospital" | "polyclinic" | "gp_clinic";
@@ -390,7 +444,27 @@ export type Screen =
   | "history"
   | "help"
   | "settings"
-  | "error";
+  | "error"
+  | "login"
+  | "onboarding";
+
+// --- Profile Types ---
+// Matches the `public.profiles` table (id references auth.users).
+// `nric` and `date_of_birth` are set at first login (see /api/auth/nric);
+// the remaining fields are null until the onboarding form is submitted.
+// `citizenship_status` being non-null is what signals onboarding is done.
+export interface Profile {
+  id: string;
+  nric: string;
+  full_name: string | null;
+  date_of_birth: string;
+  citizenship_status: "citizen" | "pr" | "foreigner" | null;
+  citizenship_year: number | null;
+  household_monthly_income: number | null;
+  household_size: number | null;
+  created_at: string;
+  updated_at: string;
+}
 
 export type ErrorType =
   | "upload"
@@ -403,11 +477,25 @@ export type Language = "en" | "zh" | "ms" | "ta";
 
 export interface SubsidyCard {
   id: string;
+  // The subsidy_schemes.id this card came from — used to look up richer
+  // static content (benefits list, how-to-use instructions).
+  schemeId: string;
   name: string;
   chineseName: string;
   eligible: boolean;
   saves: number;
   outOfPocket: number;
+  // Flat dollar subsidy amount, when the scheme (e.g. a CHAS tier or MediSave
+  // CDMP annual cap) is priced as a fixed amount rather than as a percentage.
+  // Null falls back to saves/outOfPocket.
+  amount: number | null;
+  // Whether `amount` is a per-visit subsidy (CHAS) or an annual cap (MediSave
+  // CDMP). Null when amount is null.
+  amountPeriod: "visit" | "year" | null;
+  // Set when neither `amount` nor `saves` could be determined for this
+  // scheme (MediShield Life claim limits, MediFund's discretionary payouts) —
+  // a short explanation to show instead of a misleading "0%". Null otherwise.
+  coverageNote: string | null;
   icon: string;
   badgeColor: "orange" | "teal" | "navy" | "gray";
   description: string;

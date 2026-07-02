@@ -29,6 +29,21 @@ body {
   font-family: Arial, Helvetica, sans-serif;
 }
 
+/* Hides the browser scrollbar without disabling scroll, so a scrollable
+   panel's content box never shrinks by the scrollbar's width relative to a
+   non-scrolling sibling (e.g. the app's centered content column vs. its
+   fixed bottom nav bar — both use the same max-width/mx-auto and must stay
+   pixel-aligned regardless of whether the content column is tall enough to
+   scroll). */
+.no-scrollbar {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 /* ── High contrast mode ───────────────────────────────────────── */
 html.high-contrast {
   --hc-bg: #ffffff;

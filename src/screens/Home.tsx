@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import Image from 'next/image'
 import { motion } from 'framer-motion'
-import { ScanLine, ImageUp, HelpCircle, Settings } from 'lucide-react'
+import { ScanLine, ImageUp, HelpCircle, Settings, ClipboardList, Pill, Receipt, type LucideIcon } from 'lucide-react'
 const healthkakiLogo = '/healthkaki_logo.png'
 const healthkakiIcon = '/healthkaki_icon.png'
 import { useLargeText } from '../App'
@@ -15,10 +15,10 @@ interface Props {
 }
 
 const CHIP_KEYS = [
-  { icon: '📋', key: 'chip_referral', docType: 'referral' },
-  { icon: '💊', key: 'chip_prescription', docType: 'prescription' },
-  { icon: '🧾', key: 'chip_bill', docType: 'invoice' },
-] as const satisfies readonly { icon: string; key: string; docType: DocumentTypeId }[]
+  { icon: ClipboardList, key: 'chip_referral', docType: 'referral' },
+  { icon: Pill, key: 'chip_prescription', docType: 'prescription' },
+  { icon: Receipt, key: 'chip_bill', docType: 'invoice' },
+] as const satisfies readonly { icon: LucideIcon; key: string; docType: DocumentTypeId }[]
 
 export default function Home({ onNavigate, onFileReady, onSelectCategory }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -132,7 +132,7 @@ export default function Home({ onNavigate, onFileReady, onSelectCategory }: Prop
                 className="relative bg-white border border-neutral-200 rounded-[14px] flex items-center text-left active:scale-[0.97] transition-all"
                 style={{ height: 72, padding: '0 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}
               >
-<span style={{ fontSize: 28, marginRight: 10, lineHeight: 1 }}>{chip.icon}</span>
+                <chip.icon className="w-6 h-6 text-teal-700 flex-shrink-0" style={{ marginRight: 10 }} />
                 <span className="font-bold text-neutral-900 leading-tight" style={{ fontSize: largeText ? 15 : 13 }}>
                   {t[chip.key]}
                 </span>

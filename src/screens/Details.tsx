@@ -19,7 +19,13 @@ export default function Details({ onNavigate, subsidy }: Props) {
     ? [
         s.name,
         s.description,
-        `${t.subsidy_covers} ${s.saves}%. ${t.you_pay} ${s.outOfPocket}%.`,
+        s.amount !== null
+          ? s.amountPeriod === 'year'
+            ? `${t.subsidy_covers} up to $${s.amount.toFixed(2)} per year.`
+            : `${t.subsidy_covers} $${s.amount.toFixed(2)} per visit.`
+          : s.coverageNote
+            ? s.coverageNote
+            : `${t.subsidy_covers} ${s.saves}%. ${t.you_pay} ${s.outOfPocket}%.`,
         ...s.benefits,
         s.eligible ? t.you_qualify : t.not_applicable_profile,
         s.howToUse,
@@ -56,16 +62,31 @@ export default function Details({ onNavigate, subsidy }: Props) {
         {/* How much you save */}
         <Card className="p-5">
           <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-4">{t.how_much_save}</p>
-          <div className="grid grid-cols-2 gap-3">
+          {s.amount !== null ? (
             <div className="bg-success-50 border border-success-400/20 rounded-xl p-4 text-center">
-              <p className="text-xs text-success-500 font-semibold uppercase mb-1">{t.subsidy_covers}</p>
-              <p className="text-3xl font-bold text-success-500">{s.saves}%</p>
+              <p className="text-xs text-success-500 font-semibold uppercase mb-1">
+                {s.amountPeriod === 'year' ? `${t.subsidy_covers} (up to)` : t.subsidy_covers}
+              </p>
+              <p className="text-3xl font-bold text-success-500">${s.amount.toFixed(2)}</p>
+              <p className="text-xs text-neutral-400 mt-1">{s.amountPeriod === 'year' ? 'per year' : 'per visit'}</p>
             </div>
+          ) : s.coverageNote ? (
             <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-center">
-              <p className="text-xs text-teal-700 font-semibold uppercase mb-1">{t.you_pay}</p>
-              <p className="text-3xl font-bold text-teal-700">{s.outOfPocket}%</p>
+              <p className="text-xs text-teal-700 font-semibold uppercase mb-1">Amount varies</p>
+              <p className="text-base text-teal-700 leading-snug">{s.coverageNote}</p>
             </div>
-          </div>
+          ) : (
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-success-50 border border-success-400/20 rounded-xl p-4 text-center">
+                <p className="text-xs text-success-500 font-semibold uppercase mb-1">{t.subsidy_covers}</p>
+                <p className="text-3xl font-bold text-success-500">{s.saves}%</p>
+              </div>
+              <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-center">
+                <p className="text-xs text-teal-700 font-semibold uppercase mb-1">{t.you_pay}</p>
+                <p className="text-3xl font-bold text-teal-700">{s.outOfPocket}%</p>
+              </div>
+            </div>
+          )}
         </Card>
 
         {/* Benefits */}

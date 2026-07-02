@@ -1,17 +1,23 @@
 import { motion } from 'framer-motion'
 import {
   BadgeCheck,
+  Building2,
+  CalendarClock,
   ChevronRight,
   FileText,
+  Phone,
   Pill,
-  Printer,
   Search,
+  Stethoscope,
+  Zap,
 } from 'lucide-react'
 
 import { Badge, Button, Card, Divider, TopBar } from '../components/ui'
 import TTSPanel from '../components/TTSPanel'
 import { MedicationsPanel, OcrBanner } from './MedicationsScreen'
 import { useLang, T } from '../hooks/i18n'
+import { getSubsidyDetail } from '../lib/subsidy-details'
+import { SchemeIcon } from '../lib/icons'
 import type {
   DocumentTypeId,
   Language,
@@ -26,6 +32,9 @@ interface Props {
   onNavigate: (screen: Screen) => void
   onSelectSubsidy: (subsidy: SubsidyCard) => void
   apiResult?: ProcessDocumentResponse | null
+  // Used to personalize Pioneer/Merdeka Generation detail (their MediShield
+  // Life premium subsidy and MediSave top-up both scale with age).
+  birthYear?: number | null
 }
 
 const stagger = {
@@ -43,40 +52,55 @@ const fadeUp = {
 }
 
 const SUBSIDY_STYLES = [
-  ['pioneer', '🎖️', 'orange'],
-  ['merdeka', '🏅', 'gray'],
-  ['chas', '🏷️', 'navy'],
-  ['medisave', '💳', 'teal'],
-  ['cdmp', '🏥', 'teal'],
-  ['medishield', '🛡️', 'teal'],
-  ['medifund', '💰', 'orange'],
+  ['pioneer', 'award', 'orange'],
+  ['merdeka', 'medal', 'gray'],
+  ['chas', 'tag', 'navy'],
+  ['medisave', 'credit-card', 'teal'],
+  ['cdmp', 'hospital', 'teal'],
+  ['medishield', 'shield', 'teal'],
+  ['medifund', 'wallet', 'orange'],
 ] as const
 
-function toSubsidyCard(result: SubsidyResult, index: number, language: Language): SubsidyCard {
+function toSubsidyCard(
+  result: SubsidyResult,
+  index: number,
+  language: Language,
+  birthYear: number | undefined,
+): SubsidyCard {
   const lowerName = result.schemeName.toLowerCase()
   const style = SUBSIDY_STYLES.find(([key]) => lowerName.includes(key))
+  const translation = language !== 'en' ? result.translations?.[LANG_TO_SUPPORTED[language]] : null
   // Only show a secondary translated name when the UI is actually in that
   // language — showing Chinese under an English name regardless of the
   // selected language was a leftover from an earlier hardcoded version.
-  const translatedName =
-    language !== 'en'
-      ? result.translations?.[LANG_TO_SUPPORTED[language]]?.schemeName ?? ''
-      : ''
+  const translatedName = translation?.schemeName ?? ''
+  const translatedDescription = translation?.coverageDescription ?? result.coverageDescription
+  const translatedEligibility = translation?.eligibilityConditions ?? result.eligibilityConditions
+
+  const detail = getSubsidyDetail(result.schemeId, birthYear, language)
 
   return {
     id: `subsidy-${index}`,
+    schemeId: result.schemeId,
     name: result.schemeName,
     chineseName: translatedName !== result.schemeName ? translatedName : '',
-    eligible: result.estimatedCoveragePercent > 0,
+    // Every scheme returned by the API has already passed all eligibility
+    // filters (income/citizenship/age/etc) — being in this list IS eligibility.
+    eligible: true,
     saves: result.estimatedCoveragePercent,
     outOfPocket: Math.max(0, 100 - result.estimatedCoveragePercent),
-    icon: style?.[1] ?? '📋',
+    amount: result.estimatedAmount,
+    amountPeriod: result.estimatedAmountPeriod,
+    coverageNote: result.coverageNote,
+    icon: style?.[1] ?? 'file',
     badgeColor: style?.[2] ?? 'teal',
-    description: result.coverageDescription,
-    benefits: result.eligibilityConditions
-      .split(/[.;]\s*/)
-      .filter(Boolean),
-    howToUse: result.coverageDescription,
+    description: translatedDescription,
+    // Prefer the hand-written benefits/instructions for known schemes (English
+    // only — no translated equivalent exists for this curated content yet);
+    // fall back to the translated DB description/eligibility text for any
+    // scheme without curated content.
+    benefits: detail?.benefits ?? translatedEligibility.split(/[.;]\s*/).filter(Boolean),
+    howToUse: detail?.howToUse ?? translatedDescription,
   }
 }
 
@@ -118,9 +142,20 @@ function buildResultsSpeech(
   language: Language,
   subsidies: SubsidyResult[],
   institution: string | null,
+  diagnoses: string[] = [],
 ): string {
   const supported = LANG_TO_SUPPORTED[language]
   const clinic = institution ?? ''
+
+  const diagnosisSentence =
+    diagnoses.length > 0
+      ? {
+          en: `Diagnosis or reason for referral: ${diagnoses.join(', ')}.`,
+          zh: `转诊诊断或原因：${diagnoses.join('、')}。`,
+          ms: `Diagnosis atau sebab rujukan: ${diagnoses.join(', ')}.`,
+          ta: `பரிந்துரைக்கான நோய் கண்டறிதல் அல்லது காரணம்: ${diagnoses.join(', ')}.`,
+        }[language]
+      : ''
 
   if (subsidies.length === 0) {
     const none: Record<Language, string> = {
@@ -129,7 +164,7 @@ function buildResultsSpeech(
       ms: `Keputusan untuk ${clinic}. Tiada skim subsidi yang sepadan ditemui.`,
       ta: `${clinic} முடிவுகள். பொருந்தும் மானியத் திட்டங்கள் எதுவும் இல்லை.`,
     }
-    return none[language].trim()
+    return [none[language].trim(), diagnosisSentence].filter(Boolean).join(' ')
   }
 
   const intro: Record<Language, string> = {
@@ -144,16 +179,98 @@ function buildResultsSpeech(
     const name = translation?.schemeName ?? s.schemeName
     const desc = translation?.coverageDescription ?? s.coverageDescription
     const pct = s.estimatedCoveragePercent
-    const coverage: Record<Language, string> = {
-      en: `${name}, up to ${pct} percent coverage. ${desc}`,
-      zh: `${name}，最高覆盖百分之 ${pct}。${desc}`,
-      ms: `${name}, perlindungan sehingga ${pct} peratus. ${desc}`,
-      ta: `${name}, ${pct} சதவீதம் வரை. ${desc}`,
-    }
+    const coverage: Record<Language, string> = s.coverageNote
+      ? {
+          en: `${name}, coverage varies. ${desc}`,
+          zh: `${name}，覆盖比例视情况而定。${desc}`,
+          ms: `${name}, perlindungan berbeza-beza. ${desc}`,
+          ta: `${name}, பாதுகாப்பு மாறுபடும். ${desc}`,
+        }
+      : {
+          en: `${name}, up to ${pct} percent coverage. ${desc}`,
+          zh: `${name}，最高覆盖百分之 ${pct}。${desc}`,
+          ms: `${name}, perlindungan sehingga ${pct} peratus. ${desc}`,
+          ta: `${name}, ${pct} சதவீதம் வரை. ${desc}`,
+        }
     return coverage[language]
   })
 
-  return [intro[language].trim(), ...perScheme].join(' ')
+  return [intro[language].trim(), diagnosisSentence, ...perScheme].filter(Boolean).join(' ')
+}
+
+/**
+ * Builds the spoken summary for a referral letter — reads back only what was
+ * extracted from the document (destination, diagnosis, referral type,
+ * appointment details). Referrals happen before any subsidy is claimed, so
+ * subsidy schemes/percentages are intentionally never mentioned here.
+ */
+// Inserts spaces between digits so TTS engines read a phone number digit by
+// digit ("six two two seven...") instead of as one large integer.
+function spellOutDigits(value: string): string {
+  return value.replace(/\d/g, (digit) => `${digit} `).trim()
+}
+
+function buildReferralSpeech(
+  language: Language,
+  institution: string | null,
+  diagnoses: string[],
+  referralType: string | null,
+  appointmentDateTime: string | null,
+  appointmentCenterTel: string | null,
+): string {
+  const clinic = institution ?? ''
+
+  const intro: Record<Language, string> = {
+    en: `Referral details${clinic ? ` for ${clinic}` : ''}.`,
+    zh: `转诊详情${clinic ? `：${clinic}` : ''}。`,
+    ms: `Butiran rujukan${clinic ? ` untuk ${clinic}` : ''}.`,
+    ta: `பரிந்துரை விவரங்கள்${clinic ? ` ${clinic}` : ''}.`,
+  }
+
+  const diagnosisSentence = diagnoses.length > 0
+    ? {
+        en: `Diagnosis or reason for referral: ${diagnoses.join(', ')}.`,
+        zh: `转诊诊断或原因：${diagnoses.join('、')}。`,
+        ms: `Diagnosis atau sebab rujukan: ${diagnoses.join(', ')}.`,
+        ta: `பரிந்துரைக்கான நோய் கண்டறிதல் அல்லது காரணம்: ${diagnoses.join(', ')}.`,
+      }[language]
+    : ''
+
+  const referralTypeSentence = referralType
+    ? {
+        en: `Referral type: ${referralType}.`,
+        zh: `转诊类型：${referralType}。`,
+        ms: `Jenis rujukan: ${referralType}.`,
+        ta: `பரிந்துரை வகை: ${referralType}.`,
+      }[language]
+    : ''
+
+  const appointmentSentence = appointmentDateTime
+    ? {
+        en: `Appointment date and time: ${appointmentDateTime}.`,
+        zh: `预约日期和时间：${appointmentDateTime}。`,
+        ms: `Tarikh dan masa temu janji: ${appointmentDateTime}.`,
+        ta: `சந்திப்பு தேதி மற்றும் நேரம்: ${appointmentDateTime}.`,
+      }[language]
+    : ''
+
+  const telSpelled = appointmentCenterTel ? spellOutDigits(appointmentCenterTel) : ''
+  const telSentence = appointmentCenterTel
+    ? {
+        en: `Appointment centre telephone: ${telSpelled}.`,
+        zh: `预约中心电话：${telSpelled}。`,
+        ms: `Telefon pusat temu janji: ${telSpelled}.`,
+        ta: `சந்திப்பு மைய தொலைபேசி: ${telSpelled}.`,
+      }[language]
+    : ''
+
+  return [
+    intro[language].trim(),
+    diagnosisSentence,
+    referralTypeSentence,
+    appointmentSentence,
+    telSentence,
+  ].filter(Boolean).join(' ')
 }
 
 // Which sections a document type surfaces on the results screen. Prescription
@@ -168,7 +285,7 @@ function sectionsFor(documentType: DocumentTypeId | null) {
     case 'invoice':
       return { hero: true, bill: true, subsidies: true, meds: true, title: 'results' as const }
     case 'referral':
-      return { hero: false, bill: false, subsidies: true, meds: true, title: 'preview' as const }
+      return { hero: false, bill: false, subsidies: false, meds: true, title: 'preview' as const }
     default:
       return { hero: true, bill: true, subsidies: true, meds: true, title: 'results' as const }
   }
@@ -204,12 +321,27 @@ export default function Results({
   onNavigate,
   onSelectSubsidy,
   apiResult,
+  birthYear,
 }: Props) {
   const { language } = useLang()
   const t = T[language]
 
   const spokenText = apiResult
-    ? buildResultsSpeech(language, apiResult.subsidies, apiResult.extracted.institution)
+    ? apiResult.extracted.documentType === 'referral'
+      ? buildReferralSpeech(
+          language,
+          apiResult.extracted.institution,
+          apiResult.extracted.diagnoses,
+          apiResult.extracted.referralType,
+          apiResult.extracted.appointmentDateTime,
+          apiResult.extracted.appointmentCenterTel,
+        )
+      : buildResultsSpeech(
+          language,
+          apiResult.subsidies,
+          apiResult.extracted.institution,
+          apiResult.extracted.diagnoses,
+        )
     : ''
 
   if (!apiResult) {
@@ -222,7 +354,7 @@ export default function Results({
       (first, second) =>
         second.estimatedCoveragePercent - first.estimatedCoveragePercent,
     )
-    .map((result, index) => toSubsidyCard(result, index, language))
+    .map((result, index) => toSubsidyCard(result, index, language, birthYear ?? undefined))
   const billTotal = extracted.bill?.totalAmount ?? null
   const currency = extracted.bill?.currency ?? 'SGD'
   const hasAppliedSubsidy = subsidyCards.some((card) => card.eligible)
@@ -259,7 +391,7 @@ export default function Results({
     sections.title === 'meds'
       ? t.meds_title
       : sections.title === 'preview'
-        ? t.subsidy_preview_title
+        ? t.referral_preview_title
         : t.results_title
 
   // The exact payable amount is only computable when no subsidy matched (so
@@ -267,8 +399,12 @@ export default function Results({
   // a coverage percentage rather than a dollar deduction — showing "$—" as
   // the headline in that case would present a placeholder as if it were data,
   // so the headline becomes the coverage percentage instead.
-  const topCoverage = subsidyCards.length > 0
-    ? Math.max(...subsidyCards.map((card) => card.saves))
+  // Cards with a coverageNote have no real percentage (their saves value is a
+  // placeholder 0 from the DB's null coverage_percentage) — exclude them so
+  // they can't drag the headline down to a misleading "Up to 0%".
+  const cardsWithKnownCoverage = subsidyCards.filter((card) => !card.coverageNote)
+  const topCoverage = cardsWithKnownCoverage.length > 0
+    ? Math.max(...cardsWithKnownCoverage.map((card) => card.saves))
     : null
   const heroHeadline =
     payableAmount !== null
@@ -304,13 +440,76 @@ export default function Results({
         initial="hidden"
         animate="show"
       >
-        {sections.title !== 'meds' && (
+        {sections.title !== 'meds' && sections.title !== 'preview' && (
           <motion.div variants={fadeUp}>
             <OcrBanner text={t.estimate_banner} />
           </motion.div>
         )}
 
-        {sections.hero && (
+        {sections.title === 'preview' && (
+          extracted.institution ||
+          extracted.diagnoses.length > 0 ||
+          extracted.referralType ||
+          extracted.appointmentDateTime ||
+          extracted.appointmentCenterTel
+        ) && (
+          <motion.div variants={fadeUp}>
+            <Card className="p-5">
+              <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-3">
+                {t.referral_details_title}
+              </p>
+              <div className="flex flex-col gap-3">
+                {extracted.institution && (
+                  <div className="flex items-start gap-3">
+                    <Building2 className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-neutral-400">{t.referred_to_label}</p>
+                      <p className="text-sm font-semibold text-neutral-900">{extracted.institution}</p>
+                    </div>
+                  </div>
+                )}
+                {extracted.diagnoses.length > 0 && (
+                  <div className="flex items-start gap-3">
+                    <Stethoscope className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-neutral-400">{t.diagnosis_reason_label}</p>
+                      <p className="text-sm font-semibold text-neutral-900">{extracted.diagnoses.join(', ')}</p>
+                    </div>
+                  </div>
+                )}
+                {extracted.referralType && (
+                  <div className="flex items-start gap-3">
+                    <Zap className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-neutral-400">{t.referral_type_label}</p>
+                      <p className="text-sm font-semibold text-neutral-900">{extracted.referralType}</p>
+                    </div>
+                  </div>
+                )}
+                {extracted.appointmentDateTime && (
+                  <div className="flex items-start gap-3">
+                    <CalendarClock className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-neutral-400">{t.appointment_datetime_label}</p>
+                      <p className="text-sm font-semibold text-neutral-900">{extracted.appointmentDateTime}</p>
+                    </div>
+                  </div>
+                )}
+                {extracted.appointmentCenterTel && (
+                  <div className="flex items-start gap-3">
+                    <Phone className="w-5 h-5 text-teal-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                      <p className="text-xs text-neutral-400">{t.appointment_tel_label}</p>
+                      <p className="text-sm font-semibold text-neutral-900">{extracted.appointmentCenterTel}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {(sections.hero || sections.title === 'preview') && (
           <motion.div variants={fadeUp}>
             <TTSPanel title={t.listen_results_title} subtitle={t.listen_all_sub} text={spokenText} language={language} />
           </motion.div>
@@ -361,7 +560,7 @@ export default function Results({
         {(sections.bill || (sections.meds && sections.title !== 'meds')) && (
           <motion.div
             variants={fadeUp}
-            className={sections.bill && sections.meds ? 'grid grid-cols-2 gap-3' : ''}
+            className={sections.bill && sections.meds && extracted.prescriptions.length > 0 ? 'grid grid-cols-2 gap-3' : ''}
           >
             {sections.bill && (
               <button
@@ -423,7 +622,9 @@ export default function Results({
                   }}
                 >
                   <div className="flex items-start gap-3">
-                    <span className="text-2xl">{card.icon}</span>
+                    <div className="w-9 h-9 flex-shrink-0 rounded-lg bg-teal-50 grid place-items-center">
+                      <SchemeIcon name={card.icon} className="w-5 h-5 text-teal-700" />
+                    </div>
 
                     <div className="flex-1 min-w-0">
                       <p className="text-base font-bold text-neutral-900">
@@ -439,36 +640,40 @@ export default function Results({
                           {t.matched}
                         </Badge>
                         <span className="text-sm font-semibold text-success-500">
-                          Up to {card.saves}% {t.coverage}
+                          {card.amount !== null
+                            ? card.amountPeriod === 'year'
+                              ? `Up to ${formatMoney('SGD', card.amount)}/yr`
+                              : `${formatMoney('SGD', card.amount)} off`
+                            : card.coverageNote
+                              ? 'Case-by-case'
+                              : `Up to ${card.saves}% ${t.coverage}`}
                         </span>
                       </div>
                     </div>
 
                     <div className="text-right">
-                      <p className="text-xl font-bold text-teal-700">
-                        {card.saves}%
+                      <p className={card.amount === null && card.coverageNote ? 'text-sm font-bold text-teal-700 max-w-[7rem]' : 'text-xl font-bold text-teal-700'}>
+                        {card.amount !== null
+                          ? formatMoney('SGD', card.amount)
+                          : card.coverageNote
+                            ? 'Varies'
+                            : `${card.saves}%`}
                       </p>
-                      <p className="text-xs text-neutral-400">{t.coverage}</p>
+                      <p className="text-xs text-neutral-400">
+                        {card.amount !== null
+                          ? card.amountPeriod === 'year'
+                            ? 'per year'
+                            : 'per visit'
+                          : card.coverageNote
+                            ? ''
+                            : t.coverage}
+                      </p>
                       <ChevronRight className="w-4 h-4 text-neutral-300 ml-auto mt-1" />
                     </div>
                   </div>
                 </Card>
               ))}
             </div>
-          </motion.div>
-        )}
-
-        {sections.title === 'preview' && (
-          <motion.div
-            variants={fadeUp}
-            className="bg-teal-50 border border-teal-200 rounded-2xl p-4"
-          >
-            <p className="text-sm font-bold text-teal-700 mb-1">{t.what_this_means}</p>
-            <p className="text-sm text-teal-600">
-              {subsidyCards.length > 0
-                ? t.requires_confirmation
-                : t.no_subsidies_returned}
-            </p>
           </motion.div>
         )}
 
@@ -481,18 +686,6 @@ export default function Results({
           </motion.div>
         )}
 
-        <motion.div variants={fadeUp} className="flex flex-col gap-3">
-          <Button
-            variant="secondary"
-            size="md"
-            fullWidth
-            onClick={() => window.print()}
-            className="gap-2"
-          >
-            <Printer className="w-5 h-5" />
-            {t.print_results}
-          </Button>
-        </motion.div>
       </motion.div>
     </div>
   )

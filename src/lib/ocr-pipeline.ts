@@ -71,7 +71,18 @@ Analyse the provided medical document image and extract the following informatio
 1. Medical codes (ICD-10, SNOMED, or local clinic codes found on the document)
 2. Diagnoses or condition names mentioned
 3. Date of visit (in YYYY-MM-DD format if identifiable)
-4. Healthcare institution name
+4. Healthcare institution name — the specific clinic, hospital, or specialist
+   centre where the visit/treatment happened (e.g. "Singapore General
+   Hospital", "Singapore National Eye Centre", "HMI OneCare Clinic"). If the
+   document is a payment receipt covering multiple "Bill for" entries under
+   different institutions, use the institution named on the largest/first
+   payment line item, NOT the overarching health group, hospital cluster, or
+   letterhead/logo name printed at the top (e.g. prefer "Singapore General
+   Hospital" over "SingHealth"). EXCEPTION — if the document is a referral
+   letter (has a "Referral To" / "Refer To" section), use the destination
+   named in that section (the hospital/department/specialist centre the
+   patient is being sent to), NOT the clinic that authored the referral or
+   where the current visit took place.
 5. Full text content of the document
 6. Prescription medications, including the printed medication name, dosage, frequency, and instructions.
    A strength printed inside a longer item description (e.g. "AUGMENTIN 625MG TABLET" on a bill line
@@ -95,6 +106,11 @@ Analyse the provided medical document image and extract the following informatio
    - "referral": contains a "Referral To" / "Referral Notes" section directing the patient to another institution, department, or specialist — regardless of the document's title or header
    - "prescription": a prescription or medication dispensing slip listing drug names and dosages
    Judge by the document's content and structure, not its printed title. Only use null if none of the above apply after reading the full content.
+10. If (and only if) this is a referral letter, also extract:
+   - Referral type — the printed urgency/track label, e.g. "FAST TRACK", "Routine", "Urgent". Use null if not printed.
+   - Appointment date and time — the printed appointment date/time for the referred visit, if filled in (this field is often left blank on the letter itself). Use null if blank or not printed.
+   - Appointment centre telephone — the phone number printed for the referral destination's appointment centre (e.g. "Appointment Centre Tel"). Use null if not printed.
+   For non-referral documents, use null for all three.
 
 IMPORTANT:
 - If you find any NRIC numbers (format: one letter S/T/F/G followed by 7 digits followed by one letter), replace them with [REDACTED].
@@ -124,7 +140,10 @@ Respond with this exact JSON structure:
     "payableAmount": 42.76
   },
   "claimedSubsidies": ["string array of payer/subsidy names itemised as a claim on the bill, e.g. CHAS"],
-  "documentType": "invoice|referral|prescription or null"
+  "documentType": "invoice|referral|prescription or null",
+  "referralType": "referral urgency/track label or null, referral letters only",
+  "appointmentDateTime": "printed appointment date/time or null, referral letters only",
+  "appointmentCenterTel": "printed appointment centre phone number or null, referral letters only"
 }`;
 
 /**
@@ -222,6 +241,18 @@ function parseGeminiResponse(responseText: string): RawExtractedData {
           .map((c) => c.trim())
       : [],
     documentType: normalizeDocumentType(parsed.documentType),
+    referralType:
+      typeof parsed.referralType === "string" && parsed.referralType.trim()
+        ? parsed.referralType.trim()
+        : null,
+    appointmentDateTime:
+      typeof parsed.appointmentDateTime === "string" && parsed.appointmentDateTime.trim()
+        ? parsed.appointmentDateTime.trim()
+        : null,
+    appointmentCenterTel:
+      typeof parsed.appointmentCenterTel === "string" && parsed.appointmentCenterTel.trim()
+        ? parsed.appointmentCenterTel.trim()
+        : null,
   };
 
   if (data.documentType === null && parsed.documentType) {

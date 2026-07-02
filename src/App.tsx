@@ -3,12 +3,10 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Home as HomeIcon, HelpCircle, Settings as SettingsIcon } from 'lucide-react'
 
 import { LangProvider, useLang, T } from './hooks/i18n'
-import BirthdateModal from './components/BirthdateModal'
-import {
-  getBirthdateCookie,
-  setBirthdateCookie,
-  birthYearFromIsoDate,
-} from './lib/birthdate-cookie'
+import { birthYearFromIsoDate } from './lib/birthdate-cookie'
+import { createClient } from './services/supabase/client'
+import Login from './screens/Login'
+import Onboarding from './screens/Onboarding'
 
 // ── Text size context ─────────────────────────────────────────
 // Steps 0–4 map to root font sizes: 13 14 16 18 20 px
@@ -43,7 +41,7 @@ import HelpScreen        from './screens/Help'
 import SettingsScreen    from './screens/Settings'
 import ErrorScreen       from './screens/ErrorScreen'
 
-import type { DocumentTypeId, Screen, SubsidyCard, ProcessDocumentResponse } from './types'
+import type { DocumentTypeId, Screen, SubsidyCard, ProcessDocumentResponse, Profile } from './types'
 
 const SHOW_NAV: Screen[] = ['home', 'help', 'settings', 'results']
 
@@ -70,7 +68,7 @@ interface ProcessingFailure {
 
 const DOCUMENT_TIMEOUT_MS = 30_000
 
-function AppInner() {
+function AppInner({ profile, onSignOut, onProfileUpdate }: { profile: Profile; onSignOut: () => void; onProfileUpdate: (profile: Profile) => void }) {
   const [screen, setScreen]           = useState<Screen>('home')
   const [prevScreen, setPrev]         = useState<Screen>('home')
   const [file, setFile]               = useState<File | null>(null)
@@ -104,13 +102,7 @@ function AppInner() {
   // so the auto-detected document type is ready by the time the user reaches Confirm.
   useEffect(() => () => activeRequest.current?.abort(), [])
 
-  // --- Birthdate (session cookie, editable at any time) ---
-  const [birthdate, setBirthdateState] = useState<string | null>(null)
-  const [showBirthdateModal, setShowBirthdateModal] = useState(false)
-
-  useEffect(() => { setBirthdateState(getBirthdateCookie()) }, [])
-
-  const runFetch = useCallback((selected: File, birthYear?: number) => {
+  const runFetch = useCallback((selected: File) => {
     activeRequest.current?.abort()
     const controller = new AbortController()
     const requestId = ++requestSequence.current
@@ -118,7 +110,19 @@ function AppInner() {
 
     const formData = new FormData()
     formData.append('file', selected)
-    if (birthYear !== undefined) formData.append('birthYear', String(birthYear))
+    formData.append('birthYear', String(birthYearFromIsoDate(profile.date_of_birth)))
+    if (profile.citizenship_status) {
+      formData.append('citizenshipStatus', profile.citizenship_status)
+    }
+    if (profile.citizenship_year != null) {
+      formData.append('citizenshipYear', String(profile.citizenship_year))
+    }
+    if (profile.household_monthly_income != null && profile.household_size) {
+      formData.append(
+        'incomePerCapita',
+        String(profile.household_monthly_income / profile.household_size)
+      )
+    }
 
     const timeout = window.setTimeout(() => controller.abort(), DOCUMENT_TIMEOUT_MS)
 
@@ -177,7 +181,7 @@ function AppInner() {
         window.clearTimeout(timeout)
         if (requestId === requestSequence.current) activeRequest.current = null
       })
-  }, [])
+  }, [profile])
 
   // Entry point used by Home/Camera/Confirm on file selection. Resets
   // in-flight state immediately (so Confirm's preview updates right away).
@@ -194,24 +198,8 @@ function AppInner() {
     setProcessingError(null)
     setSubsidy(null)
 
-    if (birthdate) {
-      runFetch(selected, birthYearFromIsoDate(birthdate))
-    } else if (pickedCategory === 'prescription') {
-      runFetch(selected)
-    }
-  }, [birthdate, pickedCategory, runFetch])
-
-  // Shared by the inline Confirm-screen field and the Settings "Edit" modal.
-  // Saves the cookie, then — if a file is waiting on a birthdate — fires the
-  // (re)fetch, so changing the birthdate later also refreshes the subsidy match.
-  const handleBirthdateChange = useCallback((isoDate: string) => {
-    setBirthdateCookie(isoDate)
-    setBirthdateState(isoDate)
-    setShowBirthdateModal(false)
-    if (file) {
-      runFetch(file, birthYearFromIsoDate(isoDate))
-    }
-  }, [file, runFetch])
+    runFetch(selected)
+  }, [runFetch])
 
   const retryProcessing = useCallback(() => {
     if (!file) {
@@ -227,14 +215,14 @@ function AppInner() {
     switch (screen) {
       case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} onSelectCategory={setPickedCategory} />
       case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={processFile} />
-      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} birthdate={birthdate} onBirthdateChange={handleBirthdateChange} pickedCategory={pickedCategory} />
+      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} pickedCategory={pickedCategory} />
       case 'processing':  return <ProcessingScreen onNavigate={navigate} result={apiResult} scanError={processingError !== null} />
-      case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} apiResult={apiResult} />
+      case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} apiResult={apiResult} birthYear={birthYearFromIsoDate(profile.date_of_birth)} />
       case 'bill':        return <BillScreen onNavigate={navigate} bill={apiResult?.extracted.bill ?? null} institution={apiResult?.extracted.institution ?? null} visitDate={apiResult?.extracted.visitDate ?? null} />
       case 'medications': return <MedicationsScreen onNavigate={navigate} prescriptions={apiResult?.extracted.prescriptions ?? []} />
       case 'details':     return <DetailsScreen onNavigate={navigate} subsidy={selectedSubsidy} />
       case 'help':        return <HelpScreen onNavigate={navigate} />
-      case 'settings':    return <SettingsScreen onNavigate={navigate} birthdate={birthdate} onEditBirthdate={() => setShowBirthdateModal(true)} />
+      case 'settings':    return <SettingsScreen onNavigate={navigate} onSignOut={onSignOut} profile={profile} onProfileUpdate={onProfileUpdate} />
       case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" errorMessage={processingError?.message} errorStage={processingError?.stage} timedOut={processingError?.timedOut} onRetry={retryProcessing} />
       default:            return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
     }
@@ -242,14 +230,6 @@ function AppInner() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
-      {showBirthdateModal && (
-        <BirthdateModal
-          initialValue={birthdate}
-          onSave={handleBirthdateChange}
-          onClose={() => setShowBirthdateModal(false)}
-        />
-      )}
-
       {/* Screen content */}
       <div className="flex-1 relative overflow-hidden">
         <AnimatePresence custom={dir} mode="wait">
@@ -260,7 +240,7 @@ function AppInner() {
             initial="initial"
             animate="animate"
             exit="exit"
-            className="absolute inset-0 overflow-y-auto"
+            className="absolute inset-0 overflow-y-auto no-scrollbar"
           >
             <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb]">
               {renderScreen()}
@@ -278,10 +258,10 @@ function AppInner() {
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 72, opacity: 0 }}
             transition={{ duration: 0.3, ease }}
-            className="flex-shrink-0 bg-white border-t border-neutral-200"
+            className="flex-shrink-0 bg-white border-t border-neutral-200 max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb]"
             aria-label="Main navigation"
           >
-            <div className="flex items-center justify-around px-2 pt-2 pb-6 max-w-2xl mx-auto">
+            <div className="flex items-center justify-around px-2 pt-2 pb-6">
               {NAV_ITEMS.map(({ id, label, Icon }) => {
                 const active = screen === id
                 return (
@@ -313,6 +293,85 @@ function AppInner() {
   )
 }
 
+type AuthStatus = 'loading' | 'signedOut' | 'onboarding' | 'ready'
+
+function AuthGate() {
+  const [status, setStatus] = useState<AuthStatus>('loading')
+  const [profile, setProfile] = useState<Profile | null>(null)
+
+  const loadProfile = useCallback(async () => {
+    const res = await fetch('/api/profile')
+    if (!res.ok) {
+      setStatus('signedOut')
+      return
+    }
+    const { profile: loaded } = (await res.json()) as { profile: Profile | null }
+    if (loaded?.citizenship_status) {
+      setProfile(loaded)
+      setStatus('ready')
+    } else if (loaded) {
+      setProfile(loaded)
+      setStatus('onboarding')
+    } else {
+      setStatus('signedOut')
+    }
+  }, [])
+
+  useEffect(() => {
+    const supabase = createClient()
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session) {
+        loadProfile()
+      } else {
+        setStatus('signedOut')
+      }
+    })
+
+    const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session) {
+        loadProfile()
+      } else {
+        setProfile(null)
+        setStatus('signedOut')
+      }
+    })
+
+    return () => subscription.subscription.unsubscribe()
+  }, [loadProfile])
+
+  const handleSignOut = useCallback(async () => {
+    const supabase = createClient()
+    await supabase.auth.signOut()
+  }, [])
+
+  if (status === 'loading') {
+    return <div className="min-h-screen" style={{ background: '#F8F9FA' }} />
+  }
+
+  if (status === 'signedOut') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+        <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb] flex-1">
+          <Login onAuthenticated={loadProfile} />
+        </div>
+      </div>
+    )
+  }
+
+  if (status === 'onboarding') {
+    return (
+      <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+        <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb] flex-1">
+          <Onboarding onComplete={(p) => { setProfile(p); setStatus('ready') }} />
+        </div>
+      </div>
+    )
+  }
+
+  return <AppInner profile={profile!} onSignOut={handleSignOut} onProfileUpdate={setProfile} />
+}
+
 export default function App() {
   const [step, setStepState] = useState(2)
   const setStep = (v: number) => {
@@ -330,7 +389,7 @@ export default function App() {
     <LangProvider>
       <TextSizeContext.Provider value={{ step, setStep }}>
       <HighContrastContext.Provider value={{ highContrast, setHighContrast }}>
-        <AppInner />
+        <AuthGate />
       </HighContrastContext.Provider>
       </TextSizeContext.Provider>
     </LangProvider>

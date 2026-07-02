@@ -219,6 +219,7 @@ export async function POST(request: NextRequest) {
             ...chronicConditions,
           ],
           claimedSubsidies: extracted.claimedSubsidies,
+          billItemDescriptions: extracted.bill?.items.map((item) => item.description) ?? [],
           institution: extracted.institution,
           birthYear,
           clinicType: clinicType || undefined,

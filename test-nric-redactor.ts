@@ -60,6 +60,9 @@ const rawData: RawExtractedData = {
   bill: null,
   claimedSubsidies: [],
   documentType: null,
+  referralType: null,
+  appointmentDateTime: null,
+  appointmentCenterTel: null,
 };
 const result9 = redactExtractedData(rawData);
 console.log("Test 9 (extractedData):", JSON.stringify(result9, null, 2));
