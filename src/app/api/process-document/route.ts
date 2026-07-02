@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { validateFile, validatePdfPageCount } from "@/lib/file-validator";
 import { processDocument } from "@/lib/ocr-pipeline";
 import { lookupSubsidies } from "@/lib/subsidy-lookup";
+import { translateBatch, NON_ENGLISH_LANGUAGES } from "@/lib/translator";
 import { createClient } from "@/services/supabase/server";
 import {
   FileValidationError,
@@ -9,7 +10,11 @@ import {
   OcrExtractionError,
   TimeoutError,
 } from "@/types";
-import type { ProcessDocumentResponse, SubsidyLookupParams } from "@/types";
+import type {
+  ExtractedPrescription,
+  ProcessDocumentResponse,
+  SubsidyLookupParams,
+} from "@/types";
 
 const PROCESSING_TIMEOUT_MS = 60_000; // 60s — Gemini can be slow on cold starts
 
@@ -80,6 +85,42 @@ export async function POST(request: NextRequest) {
     const processingPromise = async (): Promise<ProcessDocumentResponse> => {
       // Step 1: OCR extraction + NRIC redaction (handled internally by processDocument)
       const { extracted } = await processDocument(fileBuffer, file.type);
+
+      // Step 1.25: Translate prescription frequency + instructions into the
+      // non-English languages for multilingual display/TTS. Runs AFTER NRIC
+      // redaction so no unredacted text is ever sent for translation.
+      // Non-fatal: on failure the fields stay untranslated (English fallback).
+      if (extracted.prescriptions.length > 0) {
+        try {
+          const translated = await translateBatch(
+            extracted.prescriptions.map((p) => ({
+              frequency: p.frequency ?? "",
+              instructions: p.instructions ?? "",
+            }))
+          );
+          extracted.prescriptions = extracted.prescriptions.map((p, i) => {
+            const perLang = translated[i];
+            const translations: NonNullable<
+              ExtractedPrescription["translations"]
+            > = { "en-SG": null, "cmn-Hans-CN": null, "ms-MY": null, "ta-IN": null };
+            for (const lang of NON_ENGLISH_LANGUAGES) {
+              const fields = perLang[lang];
+              if (!fields) continue;
+              translations[lang] = {
+                // Only surface a translation for fields that had source text.
+                frequency: p.frequency ? fields.frequency : null,
+                instructions: p.instructions ? fields.instructions : null,
+              };
+            }
+            return { ...p, translations };
+          });
+        } catch (translateError) {
+          console.error(
+            "[process-document] Prescription translation failed (non-fatal):",
+            translateError
+          );
+        }
+      }
 
       // Step 1.5: Persist the file + extraction to Supabase — non-fatal on failure,
       // since the extraction result is still valuable even if persistence fails.

@@ -56,6 +56,13 @@ export interface ExtractedPrescription {
   dosage: string | null;
   frequency: string | null;
   instructions: string | null;
+  // Populated after extraction+redaction by the process-document route.
+  // Medication name and dosage are intentionally NOT translated (proper noun /
+  // numeric strength); only frequency and instructions are localized.
+  translations?: Record<
+    SupportedLanguage,
+    { frequency: string | null; instructions: string | null } | null
+  >;
 }
 
 export interface ExtractedBillItem {

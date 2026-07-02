@@ -1,4 +1,5 @@
 import { createClient } from "@/services/supabase/server";
+import { translateBatch, NON_ENGLISH_LANGUAGES } from "@/lib/translator";
 import type {
   SubsidyScheme,
   SubsidyLookupParams,
@@ -107,6 +108,39 @@ function toSubsidyResult(scheme: SubsidyScheme): SubsidyResult {
 }
 
 /**
+ * Fills in translated coverage/eligibility descriptions for each subsidy,
+ * mutating the passed results in place. The scheme name (already translated
+ * from the DB) is preserved; where the DB had no translated name, the English
+ * name is used as the fallback so the language block is never left empty.
+ *
+ * Non-fatal: any translation failure leaves the existing English text intact.
+ */
+async function applyDescriptionTranslations(
+  subsidies: SubsidyResult[]
+): Promise<void> {
+  if (subsidies.length === 0) return;
+
+  const translated = await translateBatch(
+    subsidies.map((s) => ({ description: s.coverageDescription }))
+  );
+
+  subsidies.forEach((subsidy, i) => {
+    const perLang = translated[i];
+    for (const lang of NON_ENGLISH_LANGUAGES) {
+      const description = perLang[lang]?.description;
+      if (!description) continue; // keep English fallback
+
+      const existing = subsidy.translations[lang];
+      subsidy.translations[lang] = {
+        schemeName: existing?.schemeName ?? subsidy.schemeName,
+        coverageDescription: description,
+        eligibilityConditions: description,
+      };
+    }
+  });
+}
+
+/**
  * Queries Supabase subsidy_schemes table.
  * Matches on applicable_codes OR applicable_diagnoses, or is universal
  * (a scheme with both arrays empty matches everything). Also matches
@@ -195,6 +229,12 @@ export async function lookupSubsidies(
     }
 
     const subsidies = allSchemes.map(toSubsidyResult);
+
+    // Translate the scheme descriptions into the non-English languages.
+    // Scheme NAMES already come pre-translated from the DB columns; here we
+    // fill in the coverage/eligibility text (which otherwise reused English).
+    // Non-fatal: on failure the English text is retained.
+    await applyDescriptionTranslations(subsidies);
 
     return {
       subsidies,

@@ -10,14 +10,17 @@ import {
 } from 'lucide-react'
 
 import TTSButton from '../components/TTSButton'
+import VoiceWarning from '../components/VoiceWarning'
 import { Badge, Button, Card, Divider, TopBar } from '../components/ui'
 import { useLang, T } from '../hooks/i18n'
 import { useTTS } from '../hooks/useTTS'
 import type {
+  Language,
   ProcessDocumentResponse,
   Screen,
   SubsidyCard,
   SubsidyResult,
+  SupportedLanguage,
 } from '../types'
 
 interface Props {
@@ -94,6 +97,60 @@ function formatMoney(currency: string, value: number | null) {
   }).format(value)
 }
 
+const LANG_TO_SUPPORTED: Record<Language, SupportedLanguage> = {
+  en: 'en-SG',
+  zh: 'cmn-Hans-CN',
+  ms: 'ms-MY',
+  ta: 'ta-IN',
+}
+
+/**
+ * Builds the "Read Aloud" text for the results screen in the user's selected
+ * language, using the translated scheme names and descriptions returned by the
+ * API. Falls back to the English source per-field when a translation is missing.
+ */
+function buildResultsSpeech(
+  language: Language,
+  subsidies: SubsidyResult[],
+  institution: string | null,
+): string {
+  const supported = LANG_TO_SUPPORTED[language]
+  const clinic = institution ?? ''
+
+  if (subsidies.length === 0) {
+    const none: Record<Language, string> = {
+      en: `Results for ${clinic}. No matching subsidy schemes were found.`,
+      zh: `${clinic}的结果。未找到符合条件的补贴计划。`,
+      ms: `Keputusan untuk ${clinic}. Tiada skim subsidi yang sepadan ditemui.`,
+      ta: `${clinic} முடிவுகள். பொருந்தும் மானியத் திட்டங்கள் எதுவும் இல்லை.`,
+    }
+    return none[language].trim()
+  }
+
+  const intro: Record<Language, string> = {
+    en: `Results for ${clinic}. Found ${subsidies.length} subsidy ${subsidies.length === 1 ? 'scheme' : 'schemes'} for you.`,
+    zh: `${clinic}的结果。为您找到 ${subsidies.length} 项补贴。`,
+    ms: `Keputusan untuk ${clinic}. Menemui ${subsidies.length} skim subsidi untuk anda.`,
+    ta: `${clinic} முடிவுகள். உங்களுக்காக ${subsidies.length} மானியத் திட்டங்கள் கண்டறியப்பட்டன.`,
+  }
+
+  const perScheme = subsidies.map((s) => {
+    const translation = s.translations[supported]
+    const name = translation?.schemeName ?? s.schemeName
+    const desc = translation?.coverageDescription ?? s.coverageDescription
+    const pct = s.estimatedCoveragePercent
+    const coverage: Record<Language, string> = {
+      en: `${name}, up to ${pct} percent coverage. ${desc}`,
+      zh: `${name}，最高覆盖百分之 ${pct}。${desc}`,
+      ms: `${name}, perlindungan sehingga ${pct} peratus. ${desc}`,
+      ta: `${name}, ${pct} சதவீதம் வரை. ${desc}`,
+    }
+    return coverage[language]
+  })
+
+  return [intro[language].trim(), ...perScheme].join(' ')
+}
+
 function EmptyResults({ onNavigate, t }: Pick<Props, 'onNavigate'> & { t: Record<string, string> }) {
   return (
     <div className="min-h-full bg-neutral-50 flex flex-col">
@@ -122,7 +179,7 @@ export default function Results({
 }: Props) {
   const { language } = useLang()
   const t = T[language]
-  const { toggle, speaking } = useTTS(language)
+  const { toggle, speaking, error: ttsError } = useTTS(language)
 
   if (!apiResult) {
     return <EmptyResults onNavigate={onNavigate} t={t} />
@@ -147,11 +204,7 @@ export default function Results({
       )
     : 'Date not identified'
 
-  const spokenText = [
-    `Document results for ${extracted.institution ?? 'healthcare provider'}.`,
-    `${subsidyCards.length} subsidy matches`,
-    `and ${extracted.prescriptions.length} medications were extracted.`,
-  ].join(' ')
+  const spokenText = buildResultsSpeech(language, subsidies, extracted.institution)
 
   const summaryItems = [
     {
@@ -223,6 +276,12 @@ export default function Results({
                 size="sm"
               />
             </div>
+
+            <VoiceWarning
+              language={language}
+              visible={ttsError}
+              className="mb-3 text-left"
+            />
 
             <p className="text-sm font-semibold text-neutral-500 uppercase tracking-wider mb-2">
               {t.you_pay}

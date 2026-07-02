@@ -5,7 +5,8 @@ import {
   isValidMedicationExtraction,
   isBelowConfidenceThreshold,
 } from "@/lib/medication-ocr";
-import type { ProcessMedicationResponse, SupportedLanguage } from "@/types";
+import { translateFields } from "@/lib/translator";
+import type { ProcessMedicationResponse } from "@/types";
 
 // --- Constants ---
 
@@ -17,7 +18,9 @@ const ALLOWED_MIME_TYPES = [
 ];
 
 const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10MB
-const PROCESSING_TIMEOUT_MS = 30_000; // 30 seconds
+// 45s: pipeline now makes three sequential Gemini calls
+// (handwriting detection → OCR extraction → translation).
+const PROCESSING_TIMEOUT_MS = 45_000;
 
 // --- Route Handler ---
 
@@ -172,15 +175,18 @@ async function processMedicationPipeline(
     ? "low_confidence"
     : null;
 
-  // Empty translations for now — actual translation logic added later
-  const translations: Record<
-    SupportedLanguage,
-    { purpose: string; dosageFrequency: string } | null
-  > = {
+  // Translate the extracted purpose + dosage into the non-English languages.
+  // Non-fatal: on failure the fields stay null and the UI falls back to English.
+  const translated = await translateFields({
+    purpose: extraction.purpose,
+    dosageFrequency: extraction.dosageFrequency,
+  });
+
+  const translations: ProcessMedicationResponse["medication"]["translations"] = {
     "en-SG": null,
-    "cmn-Hans-CN": null,
-    "ms-MY": null,
-    "ta-IN": null,
+    "cmn-Hans-CN": translated["cmn-Hans-CN"],
+    "ms-MY": translated["ms-MY"],
+    "ta-IN": translated["ta-IN"],
   };
 
   const response: ProcessMedicationResponse = {
