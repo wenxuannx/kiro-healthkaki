@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
   AlertTriangle,
@@ -179,7 +180,17 @@ export default function Results({
 }: Props) {
   const { language } = useLang()
   const t = T[language]
-  const { toggle, speaking, error: ttsError } = useTTS(language)
+  const { toggle, prefetch, speaking, error: ttsError } = useTTS(language)
+
+  const spokenText = apiResult
+    ? buildResultsSpeech(language, apiResult.subsidies, apiResult.extracted.institution)
+    : ''
+
+  // Warm the TTS cache as soon as the result text is known, so clicking
+  // "Listen" later doesn't pay cold Cloud TTS synthesis latency.
+  useEffect(() => {
+    prefetch(spokenText)
+  }, [prefetch, spokenText])
 
   if (!apiResult) {
     return <EmptyResults onNavigate={onNavigate} t={t} />
@@ -203,8 +214,6 @@ export default function Results({
         new Date(`${extracted.visitDate}T00:00:00`),
       )
     : 'Date not identified'
-
-  const spokenText = buildResultsSpeech(language, subsidies, extracted.institution)
 
   const summaryItems = [
     {

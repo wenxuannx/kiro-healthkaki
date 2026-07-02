@@ -71,6 +71,32 @@ async function writeToCache(cacheKey: string, audio: Buffer): Promise<void> {
   if (error) console.error("[tts] Failed to write cache entry:", error.message);
 }
 
+// GET is cacheable by the browser (unlike POST), so the client checks here
+// first with a pre-computed cache key before falling back to POST synthesis.
+export async function GET(request: NextRequest) {
+  const key = request.nextUrl.searchParams.get("key") ?? "";
+  if (!/^[0-9a-f]{64}$/.test(key)) {
+    return Response.json({ error: "Invalid key" }, { status: 400 });
+  }
+
+  const cached = await readFromCache(key).catch((error) => {
+    console.error("[tts] Cache lookup failed:", error);
+    return null;
+  });
+  if (!cached) {
+    return Response.json({ error: "Not cached" }, { status: 404 });
+  }
+
+  return new Response(new Uint8Array(cached), {
+    status: 200,
+    headers: {
+      "Content-Type": "audio/mpeg",
+      "Content-Length": String(cached.length),
+      "Cache-Control": "public, max-age=31536000, immutable",
+    },
+  });
+}
+
 export async function POST(request: NextRequest) {
   if (!process.env.GOOGLE_TTS_CREDENTIALS_JSON) {
     return Response.json({ error: "TTS not configured" }, { status: 500 });
@@ -108,7 +134,9 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "audio/mpeg",
           "Content-Length": String(cached.length),
-          "Cache-Control": "no-store",
+          // Content is addressed by a hash of (text, language, slow), so it
+          // never changes for a given cache key — safe to cache indefinitely.
+          "Cache-Control": "public, max-age=31536000, immutable",
         },
       });
     }
@@ -148,7 +176,7 @@ export async function POST(request: NextRequest) {
           headers: {
             "Content-Type": "audio/mpeg",
             "Content-Length": String(audio.length),
-            "Cache-Control": "no-store",
+            "Cache-Control": "public, max-age=31536000, immutable",
           },
         });
       }

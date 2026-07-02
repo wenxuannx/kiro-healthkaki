@@ -20,6 +20,22 @@ const LANG_CODES: Record<Language, string> = {
 const FORCE_SERVER_LANGUAGES = new Set<Language>(['ms', 'ta'])
 
 /**
+ * Mirrors the server's cacheKeyFor() in api/tts/route.ts so the client can
+ * check the cacheable GET path before falling back to POST synthesis.
+ */
+async function cacheKeyFor(
+  text: string,
+  language: string,
+  slow: boolean,
+): Promise<string> {
+  const input = `cloud-tts:${language}:${slow ? 'slow' : 'norm'}:${text}`
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input))
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+/**
  * Picks the best installed browser voice for a locale (exact locale, then base
  * language). Returns null when the device has no voice for that language.
  */
@@ -58,6 +74,7 @@ export function useTTS(language: Language = 'en') {
   const [voices, setVoices]     = useState<SpeechSynthesisVoice[]>([])
   const audioRef                = useRef<HTMLAudioElement | null>(null)
   const cacheRef                = useRef<Map<string, string>>(new Map())
+  const pendingRef              = useRef<Map<string, Promise<string>>>(new Map())
   const requestIdRef            = useRef(0)
   const keepAliveRef            = useRef<ReturnType<typeof setInterval> | null>(null)
 
@@ -103,6 +120,68 @@ export function useTTS(language: Language = 'en') {
     setSpeaking(false)
     setLoading(false)
   }, [hasSpeechSynthesis, clearKeepAlive])
+
+  // Fetches (or reuses a cache/in-flight request for) the server-synthesized
+  // audio for `text`, deduping so a prefetch() and a later speak() for the
+  // same text share one network request instead of firing twice.
+  const fetchAndCache = useCallback(
+    (text: string, slow: boolean): Promise<string> => {
+      const localCacheKey = `${slow ? 'slow' : 'norm'}::${text}`
+      const cached = cacheRef.current.get(localCacheKey)
+      if (cached) return Promise.resolve(cached)
+
+      const pending = pendingRef.current.get(localCacheKey)
+      if (pending) return pending
+
+      const promise = (async () => {
+        // Try the cacheable GET path first (browser HTTP cache can serve
+        // this instantly on repeat visits/reloads); POST responses can't
+        // be cached, so only fall back to it on an actual cache miss.
+        const remoteKey = await cacheKeyFor(text, language, slow)
+        let res = await fetch(`/api/tts?key=${remoteKey}`)
+        if (res.status === 404) {
+          res = await fetch('/api/tts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ text, slow, language }),
+          })
+        }
+        if (!res.ok) throw new Error(`TTS request failed: ${res.status}`)
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        cacheRef.current.set(localCacheKey, url)
+        return url
+      })()
+
+      pendingRef.current.set(localCacheKey, promise)
+      promise.finally(() => pendingRef.current.delete(localCacheKey))
+      return promise
+    },
+    [language],
+  )
+
+  // Warms the server-TTS cache for `text` ahead of time (e.g. as soon as a
+  // result screen renders) so that clicking "Listen" later hits an
+  // already-synthesized cache entry instead of paying cold Cloud TTS
+  // synthesis latency. No-op for languages the browser can speak natively,
+  // since that path is already instant.
+  const prefetch = useCallback(
+    (text: string) => {
+      if (!supported || !text?.trim()) return
+      const locale = LANG_CODES[language]
+      const voice =
+        hasSpeechSynthesis && !FORCE_SERVER_LANGUAGES.has(language)
+          ? pickVoice(window.speechSynthesis.getVoices(), locale)
+          : null
+      if (voice) return
+
+      const slow = rate < 0.9
+      fetchAndCache(text, slow).catch((err) => {
+        console.warn('[useTTS] prefetch failed:', err)
+      })
+    },
+    [supported, hasSpeechSynthesis, language, rate, fetchAndCache],
+  )
 
   const speak = useCallback(
     async (text: string) => {
@@ -152,20 +231,7 @@ export function useTTS(language: Language = 'en') {
       setSpeaking(true)
       try {
         const slow = rate < 0.9
-        const cacheKey = `${slow ? 'slow' : 'norm'}::${text}`
-        let url = cacheRef.current.get(cacheKey)
-
-        if (!url) {
-          const res = await fetch('/api/tts', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, slow, language }),
-          })
-          if (!res.ok) throw new Error(`TTS request failed: ${res.status}`)
-          const blob = await res.blob()
-          url = URL.createObjectURL(blob)
-          cacheRef.current.set(cacheKey, url)
-        }
+        const url = await fetchAndCache(text, slow)
 
         if (requestId !== requestIdRef.current) return // superseded
 
@@ -185,7 +251,7 @@ export function useTTS(language: Language = 'en') {
         }
       }
     },
-    [supported, hasSpeechSynthesis, language, rate],
+    [supported, hasSpeechSynthesis, language, rate, fetchAndCache],
   )
 
   const toggle = useCallback(
@@ -196,5 +262,5 @@ export function useTTS(language: Language = 'en') {
     [speaking, speak, stop],
   )
 
-  return { speak, stop, toggle, speaking, loading, error, supported, rate, setRate }
+  return { speak, stop, toggle, prefetch, speaking, loading, error, supported, rate, setRate }
 }

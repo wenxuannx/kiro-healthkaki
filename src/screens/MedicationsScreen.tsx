@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { AlertTriangle, ChevronDown, Clock, Pill } from 'lucide-react'
 import { Card, TopBar } from '../components/ui'
@@ -31,14 +31,22 @@ const summary = (item: ExtractedPrescription, language: Language) => {
 
 function PrescriptionCard({ item, open, onToggle }: { item: ExtractedPrescription; open: boolean; onToggle: () => void }) {
   const { language } = useLang()
-  const { toggle, speaking } = useTTS(language)
+  const { toggle, prefetch, speaking } = useTTS(language)
   const l = localized(item, language)
+  const text = summary(item, language)
+
+  // Warm the TTS cache as soon as this card's text is known, so tapping the
+  // speaker later doesn't pay cold Cloud TTS synthesis latency.
+  useEffect(() => {
+    prefetch(text)
+  }, [prefetch, text])
+
   return <Card className="overflow-hidden">
     <div className="p-4">
       <div className="flex items-start gap-3">
         <div className="w-12 h-12 rounded-xl bg-teal-50 border border-teal-200 grid place-items-center flex-shrink-0"><Pill className="w-6 h-6 text-teal-500" /></div>
         <div className="flex-1 min-w-0"><p className="text-base font-bold text-neutral-900">{item.medicationName}</p>{item.dosage && <span className="mt-2 inline-flex items-center gap-1.5 bg-teal-50 border border-teal-200 text-teal-700 text-xs font-semibold px-2.5 py-1 rounded-full">💊 {item.dosage}</span>}</div>
-        <TTSButton text={summary(item, language)} speaking={speaking} onToggle={toggle} size="sm" variant="icon" />
+        <TTSButton text={text} speaking={speaking} onToggle={toggle} size="sm" variant="icon" />
       </div>
       {l.frequency && <span className="mt-3 inline-flex items-center gap-1.5 bg-navy-50 border border-navy-100 text-navy-500 text-xs font-semibold px-2.5 py-1 rounded-full"><Clock className="w-3 h-3" />{l.frequency}</span>}
       <button onClick={onToggle} className="mt-3 w-full flex items-center justify-center gap-1.5 text-sm text-neutral-400 hover:text-neutral-600 py-1" aria-expanded={open}>{open ? 'Less detail' : 'More detail'}<motion.span animate={{ rotate: open ? 180 : 0 }}><ChevronDown className="w-4 h-4" /></motion.span></button>
@@ -49,9 +57,15 @@ function PrescriptionCard({ item, open, onToggle }: { item: ExtractedPrescriptio
 
 export default function MedicationsScreen({ onNavigate, prescriptions }: Props) {
   const { language } = useLang()
-  const { toggle, speaking, error: ttsError } = useTTS(language)
+  const { toggle, prefetch, speaking, error: ttsError } = useTTS(language)
   const [openIndex, setOpenIndex] = useState<number | null>(prescriptions.length ? 0 : null)
   const allText = prescriptions.map((p) => summary(p, language)).join('. ')
+
+  // Warm the TTS cache as soon as the combined text is known, so tapping
+  // "Listen to all" later doesn't pay cold Cloud TTS synthesis latency.
+  useEffect(() => {
+    prefetch(allText)
+  }, [prefetch, allText])
   return <div className="min-h-full bg-neutral-50 flex flex-col">
     <TopBar title="Your Medications" subtitle={`${prescriptions.length} extracted from your document`} onBack={() => onNavigate('results')} right={allText ? <TTSButton text={allText} speaking={speaking} onToggle={toggle} size="sm" variant="icon" /> : undefined} />
     <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-4">
