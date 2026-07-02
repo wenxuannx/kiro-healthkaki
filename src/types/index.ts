@@ -31,6 +31,9 @@ export interface SubsidyResult {
 }
 
 // Matches the live `subsidy_schemes` table schema in Supabase.
+// NOTE: this differs from supabase/migrations/001_create_subsidy_schemes.sql and
+// supabase/seed.sql, which describe a schema that was never actually applied to
+// the live database — the columns below are what's really deployed.
 export interface SubsidyScheme {
   id: string;
   name: string;
@@ -77,6 +80,8 @@ export interface RawExtractedData {
   prescriptions: ExtractedPrescription[];
   bill: ExtractedBill | null;
   documentType: DocumentTypeId | null;
+  // Payer/subsidy names itemised as a claim or deduction on a bill (e.g. "CHAS", "MediSave").
+  claimedSubsidies: string[];
 }
 
 export interface RedactedExtractedData {
@@ -88,6 +93,7 @@ export interface RedactedExtractedData {
   prescriptions: ExtractedPrescription[];
   bill: ExtractedBill | null;
   documentType: DocumentTypeId | null;
+  claimedSubsidies: string[];
 }
 
 export type ExtractedDocumentData = RedactedExtractedData;
@@ -105,6 +111,8 @@ export interface RedactionResult {
 export interface SubsidyLookupParams {
   medicalCodes: string[];
   diagnoses: string[];
+  // Payer/subsidy names itemised as a claim or deduction on a bill (e.g. "CHAS", "MediSave").
+  claimedSubsidies?: string[];
   institution: string | null;
   birthYear?: number;
   clinicType?: "public_hospital" | "polyclinic" | "gp_clinic";

@@ -109,20 +109,23 @@ function toSubsidyResult(scheme: SubsidyScheme): SubsidyResult {
 /**
  * Queries Supabase subsidy_schemes table.
  * Matches on applicable_codes OR applicable_diagnoses, or is universal
- * (a scheme with both arrays empty matches everything).
+ * (a scheme with both arrays empty matches everything). Also matches
+ * schemes explicitly named as a claim/payer on the bill (e.g. a
+ * "Claim from CHAS" line matches any scheme whose name contains "CHAS").
  * Filters by institution type mapping and birth year.
- * Returns empty with message if no codes/diagnoses were extracted.
+ * Returns empty with message if no codes/diagnoses/claims were extracted.
  */
 export async function lookupSubsidies(
   params: SubsidyLookupParams
 ): Promise<SubsidyLookupResult> {
-  const { medicalCodes, diagnoses, institution, birthYear, clinicType } =
+  const { medicalCodes, diagnoses, claimedSubsidies = [], institution, birthYear, clinicType } =
     params;
 
   const hasCodes = medicalCodes.length > 0 && medicalCodes.some((c) => c.trim() !== "");
   const hasDiagnoses = diagnoses.length > 0 && diagnoses.some((d) => d.trim() !== "");
+  const hasClaims = claimedSubsidies.length > 0 && claimedSubsidies.some((c) => c.trim() !== "");
 
-  if (!hasCodes && !hasDiagnoses) {
+  if (!hasCodes && !hasDiagnoses && !hasClaims) {
     return {
       subsidies: [],
       message: "Insufficient data was extracted to determine subsidy eligibility",
@@ -150,6 +153,7 @@ export async function lookupSubsidies(
 
     const nonEmptyCodes = medicalCodes.map((c) => c.trim()).filter(Boolean).slice(0, 50);
     const nonEmptyDiagnoses = diagnoses.map((d) => d.trim().toLowerCase()).filter(Boolean).slice(0, 50);
+    const nonEmptyClaims = claimedSubsidies.map((c) => c.trim().toLowerCase()).filter(Boolean).slice(0, 50);
 
     let allSchemes = (data as SubsidyScheme[]) ?? [];
 
@@ -162,7 +166,13 @@ export async function lookupSubsidies(
       const diagnosisMatch = scheme.applicable_diagnoses.some((d) =>
         nonEmptyDiagnoses.some((docDiagnosis) => docDiagnosis.includes(d.toLowerCase()))
       );
-      return codeMatch || diagnosisMatch;
+      // A bill that explicitly names this scheme as a claim/payer (e.g. "Claim from CHAS")
+      // is itself evidence of eligibility, regardless of diagnosis/code extraction.
+      const schemeName = scheme.name.toLowerCase();
+      const claimMatch = nonEmptyClaims.some(
+        (claim) => schemeName.includes(claim) || claim.includes(schemeName)
+      );
+      return codeMatch || diagnosisMatch || claimMatch;
     });
 
     // Filter by clinic type — empty institution_types means universal.

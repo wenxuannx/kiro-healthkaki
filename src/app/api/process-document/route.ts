@@ -123,6 +123,7 @@ export async function POST(request: NextRequest) {
             ...extracted.diagnoses,
             ...chronicConditions,
           ],
+          claimedSubsidies: extracted.claimedSubsidies,
           institution: extracted.institution,
           birthYear,
           clinicType: clinicType || undefined,

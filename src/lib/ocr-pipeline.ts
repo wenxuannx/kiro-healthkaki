@@ -80,7 +80,10 @@ Analyse the provided medical document image and extract the following informatio
 5. Full text content of the document
 6. Prescription medications, including the printed medication name, dosage, frequency, and instructions
 7. Printed bill total and line items, if this is a bill or invoice
-8. Document type — classify as exactly one of the following lowercase string values (use the value on the left of the colon, not the description):
+8. Subsidy or payer claims itemised on the bill as a deduction from the total — lines such as
+   "Claim from CHAS", "MediSave claim", "Claim from Medifund", "MediShield Life". Return only the
+   payer/scheme name (e.g. "CHAS", "MediSave"), not the amount.
+9. Document type — classify as exactly one of the following lowercase string values (use the value on the left of the colon, not the description):
    - "invoice": a bill, receipt, or itemised charges for services/medication issued after a visit
    - "referral": contains a "Referral To" / "Referral Notes" section directing the patient to another institution, department, or specialist — regardless of the document's title or header
    - "diagnosis": states a new diagnosis or chronic condition without referring the patient elsewhere
@@ -114,6 +117,7 @@ Respond with this exact JSON structure:
     "totalAmount": 120.50,
     "items": [{ "description": "printed line-item description", "amount": 20.00 }]
   },
+  "claimedSubsidies": ["string array of payer/subsidy names itemised as a claim on the bill, e.g. CHAS"],
   "documentType": "invoice|referral|diagnosis|prescription|followup|specialist or null"
 }`;
 
@@ -130,8 +134,9 @@ function isEmptyExtraction(data: RawExtractedData): boolean {
   const hasNoInstitution = !data.institution;
   const hasNoPrescriptions = !data.prescriptions || data.prescriptions.length === 0;
   const hasNoBill = !data.bill;
+  const hasNoClaimedSubsidies = !data.claimedSubsidies || data.claimedSubsidies.length === 0;
 
-  return hasNoCodes && hasNoDiagnoses && hasNoVisitDate && hasNoInstitution && hasNoPrescriptions && hasNoBill;
+  return hasNoCodes && hasNoDiagnoses && hasNoVisitDate && hasNoInstitution && hasNoPrescriptions && hasNoBill && hasNoClaimedSubsidies;
 }
 
 /**
@@ -204,6 +209,11 @@ function parseGeminiResponse(responseText: string): RawExtractedData {
         })
       : [],
     bill: normalizeBill(parsed.bill),
+    claimedSubsidies: Array.isArray(parsed.claimedSubsidies)
+      ? (parsed.claimedSubsidies as unknown[])
+          .filter((c): c is string => typeof c === "string" && c.trim() !== "")
+          .map((c) => c.trim())
+      : [],
     documentType: normalizeDocumentType(parsed.documentType),
   };
 

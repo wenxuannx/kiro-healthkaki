@@ -153,6 +153,12 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       items: data.bill.items.map((item) => ({ ...item, description: redactNric(item.description).redactedText })),
     };
 
+    // Redact each claimed subsidy name
+    const redactedClaimedSubsidies = data.claimedSubsidies.map((claim) => {
+      const result = redactNric(claim);
+      return result.redactedText;
+    });
+
     return {
       rawText: rawTextResult.redactedText,
       institution: redactedInstitution,
@@ -161,6 +167,7 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       medicalCodes: redactedMedicalCodes,
       prescriptions: redactedPrescriptions,
       bill: redactedBill,
+      claimedSubsidies: redactedClaimedSubsidies,
       documentType: data.documentType,
     };
   } catch (error) {

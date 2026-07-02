@@ -58,6 +58,7 @@ const rawData: RawExtractedData = {
   rawText: "Patient F1234567C visited NUH on 2024-01-15",
   prescriptions: [],
   bill: null,
+  claimedSubsidies: [],
   documentType: null,
 };
 const result9 = redactExtractedData(rawData);
