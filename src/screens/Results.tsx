@@ -129,7 +129,12 @@ export default function Results({
   }
 
   const { extracted, subsidies, message } = apiResult
-  const subsidyCards = subsidies.map(toSubsidyCard)
+  const subsidyCards = [...subsidies]
+    .sort(
+      (first, second) =>
+        second.estimatedCoveragePercent - first.estimatedCoveragePercent,
+    )
+    .map(toSubsidyCard)
   const billTotal = extracted.bill?.totalAmount ?? null
   const currency = extracted.bill?.currency ?? 'SGD'
   const hasAppliedSubsidy = subsidyCards.some((card) => card.eligible)
@@ -186,6 +191,28 @@ export default function Results({
         initial="hidden"
         animate="show"
       >
+        <motion.div
+          variants={fadeUp}
+          role="status"
+          aria-label={`${subsidyCards.length} ${t.applicable_schemes_found}`}
+        >
+          <Card className="p-4 flex items-center gap-4 bg-white border-teal-200">
+            <div className="w-14 h-14 rounded-2xl bg-teal-700 text-white grid place-items-center flex-shrink-0">
+              <span className="text-2xl font-bold">{subsidyCards.length}</span>
+            </div>
+            <div>
+              <p className="text-lg font-bold text-neutral-900">
+                {t.applicable_schemes_found}
+              </p>
+              <p className="text-sm text-neutral-500">
+                {subsidyCards.length === 0
+                  ? t.no_subsidies_returned
+                  : t.requires_confirmation}
+              </p>
+            </div>
+          </Card>
+        </motion.div>
+
         <motion.div variants={fadeUp}>
           <Card className="p-5 text-center bg-gradient-to-b from-navy-50 to-white border-navy-100">
             <div className="flex justify-end mb-2">

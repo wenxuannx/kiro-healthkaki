@@ -90,6 +90,7 @@ export const T: Record<Language, Record<string, string>> = {
 
     // Results
     results_title: 'Your Results',
+    applicable_schemes_found: 'Applicable subsidy schemes found',
     you_pay: 'You pay',
     original_bill: 'Original bill',
     total_saved: 'Total saved',
@@ -261,6 +262,7 @@ export const T: Record<Language, Record<string, string>> = {
     msg_redacted: '结果中已将类似国民身份证号的标识符进行遮盖处理',
     msg_checking: '核查 建国一代、CHAS 和 立国一代 的资格',
     results_title: '您的结果',
+    applicable_schemes_found: '找到适用的补贴计划',
     you_pay: '由您支付',
     original_bill: '原始法案',
     total_saved: '总节省金额',
@@ -424,6 +426,7 @@ export const T: Record<Language, Record<string, string>> = {
     msg_redacted: 'Pengecam seperti NRIC disembunyikan daripada keputusan.',
     msg_checking: 'Semak kelayakan Perintis, CHAS & Merdeka',
     results_title: 'Keputusan Anda',
+    applicable_schemes_found: 'Skim subsidi yang berkenaan ditemui',
     you_pay: 'Anda bayar',
     original_bill: 'Bil asal',
     total_saved: 'Jumlah dijimatkan',
@@ -587,6 +590,7 @@ export const T: Record<Language, Record<string, string>> = {
     msg_redacted: 'NRIC போன்ற அடையாளங்காட்டிகள் முடிவுகளிலிருந்து நீக்கப்படுகின்றன.',
     msg_checking: 'பயோனியர், CHAS & மெர்டேகா தகுதியைச் சரிபார்த்தல்',
     results_title: 'உங்கள் முடிவுகள்',
+    applicable_schemes_found: 'பொருந்தக்கூடிய மானியத் திட்டங்கள் கண்டறியப்பட்டன',
     you_pay: 'நீங்கள் பணம் செலுத்துகிறீர்கள்',
     original_bill: 'அசல் மசோதா',
     total_saved: 'மொத்த சேமிக்கப்பட்டது',
