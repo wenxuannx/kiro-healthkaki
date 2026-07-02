@@ -73,6 +73,92 @@ export function filterByBirthYear(
 }
 
 /**
+ * Filters subsidy schemes by household income per capita.
+ * Same inclusive-bounds/null-as-infinity semantics as filterByBirthYear.
+ * If incomePerCapita is undefined, all schemes are included (income-gated
+ * schemes like the CHAS tiers cannot be filtered without income data).
+ */
+export function filterByIncomePerCapita(
+  schemes: SubsidyScheme[],
+  incomePerCapita: number | undefined
+): SubsidyScheme[] {
+  if (incomePerCapita === undefined) {
+    return schemes;
+  }
+
+  return schemes.filter((scheme) => {
+    const min = scheme.min_income_per_capita;
+    const max = scheme.max_income_per_capita;
+
+    if (min === null && max === null) return true;
+    if (min !== null && max === null) return incomePerCapita >= min;
+    if (min === null && max !== null) return incomePerCapita <= max;
+    return incomePerCapita >= min! && incomePerCapita <= max!;
+  });
+}
+
+/**
+ * Filters subsidy schemes by citizenship status/year.
+ * A scheme with citizenship_required === null has no citizenship gate and
+ * always passes. Otherwise the caller's citizenshipStatus must satisfy the
+ * requirement, and — if the scheme also has a citizenship_by_year cutoff
+ * (Pioneer/Merdeka Generation) — the caller's citizenshipYear must be on or
+ * before that cutoff.
+ * If citizenshipStatus is undefined, citizenship-gated schemes are excluded
+ * (we cannot confirm eligibility without this data) but ungated schemes
+ * still pass through.
+ */
+export function filterByCitizenship(
+  schemes: SubsidyScheme[],
+  citizenshipStatus: "citizen" | "pr" | "foreigner" | undefined,
+  citizenshipYear: number | undefined
+): SubsidyScheme[] {
+  return schemes.filter((scheme) => {
+    const required = scheme.citizenship_required;
+    if (required === null) return true;
+    if (citizenshipStatus === undefined) return false;
+
+    const statusOk =
+      required === "citizen"
+        ? citizenshipStatus === "citizen"
+        : citizenshipStatus === "citizen" || citizenshipStatus === "pr";
+    if (!statusOk) return false;
+
+    if (scheme.citizenship_by_year !== null) {
+      if (citizenshipYear === undefined) return false;
+      if (citizenshipYear > scheme.citizenship_by_year) return false;
+    }
+
+    return true;
+  });
+}
+
+/**
+ * Pioneer/Merdeka Generation (age-cohort) and CHAS (income-tier) schemes are
+ * mutually exclusive: per MOH, seniors who qualify for a generation package
+ * use it instead of a standard CHAS card. A scheme counts as "age-cohort" if
+ * it has a birth-year bound, and "income-tier" if it has an income bound.
+ * Only applied when birthYear is known — otherwise we can't tell whether the
+ * caller qualifies for a cohort scheme, so income-tier schemes are left in.
+ */
+function excludeIncomeTierIfCohortMatched(
+  schemes: SubsidyScheme[],
+  birthYear: number | undefined
+): SubsidyScheme[] {
+  if (birthYear === undefined) return schemes;
+
+  const isAgeCohort = (s: SubsidyScheme) =>
+    s.min_birth_year !== null || s.max_birth_year !== null;
+  const isIncomeTier = (s: SubsidyScheme) =>
+    s.min_income_per_capita !== null || s.max_income_per_capita !== null;
+
+  const matchedCohort = schemes.some(isAgeCohort);
+  if (!matchedCohort) return schemes;
+
+  return schemes.filter((s) => !isIncomeTier(s));
+}
+
+/**
  * Transforms a SubsidyScheme DB row into a SubsidyResult for the API response.
  * The DB only stores a translated name per language (chinese_name/malay_name/tamil_name) —
  * there are no separately translated description columns, so coverageDescription and
@@ -152,8 +238,17 @@ async function applyDescriptionTranslations(
 export async function lookupSubsidies(
   params: SubsidyLookupParams
 ): Promise<SubsidyLookupResult> {
-  const { medicalCodes, diagnoses, claimedSubsidies = [], institution, birthYear, clinicType } =
-    params;
+  const {
+    medicalCodes,
+    diagnoses,
+    claimedSubsidies = [],
+    institution,
+    birthYear,
+    clinicType,
+    citizenshipStatus,
+    citizenshipYear,
+    incomePerCapita,
+  } = params;
 
   const hasCodes = medicalCodes.length > 0 && medicalCodes.some((c) => c.trim() !== "");
   const hasDiagnoses = diagnoses.length > 0 && diagnoses.some((d) => d.trim() !== "");
@@ -216,8 +311,13 @@ export async function lookupSubsidies(
       );
     }
 
-    // Filter by birth year
+    // Filter by birth year, income per capita, and citizenship
     allSchemes = filterByBirthYear(allSchemes, birthYear);
+    allSchemes = filterByIncomePerCapita(allSchemes, incomePerCapita);
+    allSchemes = filterByCitizenship(allSchemes, citizenshipStatus, citizenshipYear);
+
+    // Pioneer/Merdeka Generation supersedes standard CHAS tiers when matched.
+    allSchemes = excludeIncomeTierIfCohortMatched(allSchemes, birthYear);
 
     if (allSchemes.length === 0) {
       return {

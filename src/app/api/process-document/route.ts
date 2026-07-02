@@ -69,6 +69,33 @@ export async function POST(request: NextRequest) {
     const clinicTypes = ["public_hospital", "polyclinic", "gp_clinic"] as const;
     const clinicType = clinicTypes.find((type) => type === clinicTypeRaw);
 
+    // --- Parse optional citizenship/income fields (used for CHAS tier and
+    // Pioneer/Merdeka Generation eligibility, and citizenship-gated schemes) ---
+    const citizenshipStatusValue = formData.get("citizenshipStatus");
+    const citizenshipYearValue = formData.get("citizenshipYear");
+    const incomePerCapitaValue = formData.get("incomePerCapita");
+
+    const citizenshipStatuses = ["citizen", "pr", "foreigner"] as const;
+    const citizenshipStatusRaw =
+      typeof citizenshipStatusValue === "string" ? citizenshipStatusValue : null;
+    const citizenshipStatus = citizenshipStatuses.find(
+      (status) => status === citizenshipStatusRaw
+    );
+
+    const citizenshipYearRaw =
+      typeof citizenshipYearValue === "string" ? Number(citizenshipYearValue) : undefined;
+    const citizenshipYear =
+      Number.isInteger(citizenshipYearRaw) && citizenshipYearRaw! >= 1900 && citizenshipYearRaw! <= currentYear
+        ? citizenshipYearRaw
+        : undefined;
+
+    const incomePerCapitaRaw =
+      typeof incomePerCapitaValue === "string" ? Number(incomePerCapitaValue) : undefined;
+    const incomePerCapita =
+      incomePerCapitaRaw !== undefined && Number.isFinite(incomePerCapitaRaw) && incomePerCapitaRaw >= 0
+        ? incomePerCapitaRaw
+        : undefined;
+
     let chronicConditions: string[] = [];
     if (chronicConditionsRaw) {
       try {
@@ -168,6 +195,9 @@ export async function POST(request: NextRequest) {
           institution: extracted.institution,
           birthYear,
           clinicType: clinicType || undefined,
+          citizenshipStatus,
+          citizenshipYear,
+          incomePerCapita,
         };
 
         const lookupResult = await lookupSubsidies(lookupParams);

@@ -47,6 +47,10 @@ export interface SubsidyScheme {
   min_birth_year: number | null;
   max_birth_year: number | null;
   institution_types: string[];
+  min_income_per_capita: number | null;
+  max_income_per_capita: number | null;
+  citizenship_required: "citizen" | "citizen_or_pr" | null;
+  citizenship_by_year: number | null;
 }
 
 // --- Document Extraction Types ---
@@ -123,6 +127,12 @@ export interface SubsidyLookupParams {
   institution: string | null;
   birthYear?: number;
   clinicType?: "public_hospital" | "polyclinic" | "gp_clinic";
+  // Person-level fields used to filter mutually-exclusive age-cohort (Pioneer/
+  // Merdeka Generation) and income-tier (CHAS) schemes, and citizenship-gated
+  // national frameworks. All optional — omitting them simply skips that filter.
+  citizenshipStatus?: "citizen" | "pr" | "foreigner";
+  citizenshipYear?: number;
+  incomePerCapita?: number;
 }
 
 export interface SubsidyLookupResult {
