@@ -60,12 +60,16 @@ export interface ExtractedPrescription {
   dosage: string | null;
   frequency: string | null;
   instructions: string | null;
+  // Plain-language explanation of what the medication is for, inferred by
+  // Gemini from the medication name (not printed on most documents).
+  purpose: string | null;
   // Populated after extraction+redaction by the process-document route.
   // Medication name and dosage are intentionally NOT translated (proper noun /
-  // numeric strength); only frequency and instructions are localized.
+  // numeric strength); frequency/instructions are translated via Gemini,
+  // purpose is translated via DeepL (see src/lib/deepl.ts).
   translations?: Record<
     SupportedLanguage,
-    { frequency: string | null; instructions: string | null } | null
+    { frequency: string | null; instructions: string | null; purpose: string | null } | null
   >;
 }
 
@@ -78,9 +82,13 @@ export interface ExtractedBill {
   currency: string;
   totalAmount: number | null;
   items: ExtractedBillItem[];
+  // The amount actually owed by the patient after subsidy/insurance
+  // deductions, as printed on the bill (e.g. "Patient Total", "Amount
+  // Payable"). Distinct from totalAmount, which is the pre-deduction charge.
+  payableAmount: number | null;
 }
 
-export type DocumentTypeId = "invoice" | "referral" | "diagnosis" | "prescription" | "followup" | "specialist";
+export type DocumentTypeId = "invoice" | "referral" | "prescription";
 
 export interface RawExtractedData {
   medicalCodes: string[];

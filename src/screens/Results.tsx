@@ -1,21 +1,19 @@
-import { useEffect } from 'react'
 import { motion } from 'framer-motion'
 import {
-  AlertTriangle,
   BadgeCheck,
   ChevronRight,
   FileText,
   Pill,
   Printer,
-  Share2,
+  Search,
 } from 'lucide-react'
 
-import TTSButton from '../components/TTSButton'
-import VoiceWarning from '../components/VoiceWarning'
 import { Badge, Button, Card, Divider, TopBar } from '../components/ui'
+import TTSPanel from '../components/TTSPanel'
+import { MedicationsPanel, OcrBanner } from './MedicationsScreen'
 import { useLang, T } from '../hooks/i18n'
-import { useTTS } from '../hooks/useTTS'
 import type {
+  DocumentTypeId,
   Language,
   ProcessDocumentResponse,
   Screen,
@@ -54,15 +52,21 @@ const SUBSIDY_STYLES = [
   ['medifund', '💰', 'orange'],
 ] as const
 
-function toSubsidyCard(result: SubsidyResult, index: number): SubsidyCard {
+function toSubsidyCard(result: SubsidyResult, index: number, language: Language): SubsidyCard {
   const lowerName = result.schemeName.toLowerCase()
   const style = SUBSIDY_STYLES.find(([key]) => lowerName.includes(key))
+  // Only show a secondary translated name when the UI is actually in that
+  // language — showing Chinese under an English name regardless of the
+  // selected language was a leftover from an earlier hardcoded version.
+  const translatedName =
+    language !== 'en'
+      ? result.translations?.[LANG_TO_SUPPORTED[language]]?.schemeName ?? ''
+      : ''
 
   return {
     id: `subsidy-${index}`,
     name: result.schemeName,
-    chineseName:
-      result.translations?.['cmn-Hans-CN']?.schemeName ?? '',
+    chineseName: translatedName !== result.schemeName ? translatedName : '',
     eligible: result.estimatedCoveragePercent > 0,
     saves: result.estimatedCoveragePercent,
     outOfPocket: Math.max(0, 100 - result.estimatedCoveragePercent),
@@ -152,20 +156,43 @@ function buildResultsSpeech(
   return [intro[language].trim(), ...perScheme].join(' ')
 }
 
+// Which sections a document type surfaces on the results screen. Prescription
+// slips never had a bill to explain, and referral letters are captured
+// before a bill exists.
+// `meds` is offered for any document type whenever prescriptions were
+// actually extracted — a clinic bill can itemise dispensed medications too.
+function sectionsFor(documentType: DocumentTypeId | null) {
+  switch (documentType) {
+    case 'prescription':
+      return { hero: false, bill: false, subsidies: false, meds: true, title: 'meds' as const }
+    case 'invoice':
+      return { hero: true, bill: true, subsidies: true, meds: true, title: 'results' as const }
+    case 'referral':
+      return { hero: false, bill: false, subsidies: true, meds: true, title: 'preview' as const }
+    default:
+      return { hero: true, bill: true, subsidies: true, meds: true, title: 'results' as const }
+  }
+}
+
 function EmptyResults({ onNavigate, t }: Pick<Props, 'onNavigate'> & { t: Record<string, string> }) {
   return (
     <div className="min-h-full bg-neutral-50 flex flex-col">
       <TopBar title={t.results_title} onBack={() => onNavigate('home')} />
-      <div className="flex-1 grid place-items-center p-6 text-center">
+      <div className="flex-1 flex flex-col items-center justify-center p-6 text-center gap-5">
+        <div className="w-16 h-16 rounded-2xl bg-neutral-100 grid place-items-center">
+          <Search className="w-7 h-7 text-neutral-400" />
+        </div>
         <div>
-          <AlertTriangle className="w-12 h-12 text-orange-400 mx-auto mb-3" />
-          <p className="font-bold">{t.no_processed}</p>
-          <Button
-            variant="primary"
-            className="mt-4"
-            onClick={() => onNavigate('home')}
-          >
-            {t.go_home}
+          <p className="text-lg font-bold text-neutral-900 mb-1.5">{t.empty_state_title}</p>
+          <p className="text-sm text-neutral-500 max-w-xs">{t.empty_state_body}</p>
+        </div>
+        <OcrBanner text={t.estimate_banner} />
+        <div className="w-full max-w-xs flex flex-col gap-3 mt-1">
+          <Button variant="teal" size="lg" fullWidth onClick={() => onNavigate('home')}>
+            {t.scan_different}
+          </Button>
+          <Button variant="secondary" size="md" fullWidth onClick={() => onNavigate('help')}>
+            {t.get_help}
           </Button>
         </div>
       </div>
@@ -180,17 +207,10 @@ export default function Results({
 }: Props) {
   const { language } = useLang()
   const t = T[language]
-  const { toggle, prefetch, speaking, error: ttsError } = useTTS(language)
 
   const spokenText = apiResult
     ? buildResultsSpeech(language, apiResult.subsidies, apiResult.extracted.institution)
     : ''
-
-  // Warm the TTS cache as soon as the result text is known, so clicking
-  // "Listen" later doesn't pay cold Cloud TTS synthesis latency.
-  useEffect(() => {
-    prefetch(spokenText)
-  }, [prefetch, spokenText])
 
   if (!apiResult) {
     return <EmptyResults onNavigate={onNavigate} t={t} />
@@ -202,12 +222,32 @@ export default function Results({
       (first, second) =>
         second.estimatedCoveragePercent - first.estimatedCoveragePercent,
     )
-    .map(toSubsidyCard)
+    .map((result, index) => toSubsidyCard(result, index, language))
   const billTotal = extracted.bill?.totalAmount ?? null
   const currency = extracted.bill?.currency ?? 'SGD'
   const hasAppliedSubsidy = subsidyCards.some((card) => card.eligible)
-  const payableAmount = hasAppliedSubsidy ? null : billTotal
-  const savedAmount = !hasAppliedSubsidy && billTotal !== null ? 0 : null
+  // Prefer the payable amount actually printed on the bill (e.g. "Patient
+  // Total") over an estimate — it reflects the real deduction, not a coverage
+  // percentage. Only fall back to "unknown" when the document doesn't print one.
+  const billPayable = extracted.bill?.payableAmount ?? null
+  const payableAmount = billPayable !== null ? billPayable : hasAppliedSubsidy ? null : billTotal
+  const savedAmount =
+    billPayable !== null && billTotal !== null
+      ? Math.max(0, billTotal - billPayable)
+      : !hasAppliedSubsidy && billTotal !== null
+        ? 0
+        : null
+
+  const sections = sectionsFor(extracted.documentType)
+
+  const nothingDetected =
+    !extracted.bill &&
+    extracted.prescriptions.length === 0 &&
+    subsidyCards.length === 0
+
+  if (nothingDetected) {
+    return <EmptyResults onNavigate={onNavigate} t={t} />
+  }
 
   const visitDate = extracted.visitDate
     ? new Intl.DateTimeFormat('en-SG', { dateStyle: 'medium' }).format(
@@ -215,28 +255,39 @@ export default function Results({
       )
     : 'Date not identified'
 
+  const screenTitle =
+    sections.title === 'meds'
+      ? t.meds_title
+      : sections.title === 'preview'
+        ? t.subsidy_preview_title
+        : t.results_title
+
+  // The exact payable amount is only computable when no subsidy matched (so
+  // the bill total stands as-is). When a subsidy did match, the backend gives
+  // a coverage percentage rather than a dollar deduction — showing "$—" as
+  // the headline in that case would present a placeholder as if it were data,
+  // so the headline becomes the coverage percentage instead.
+  const topCoverage = subsidyCards.length > 0
+    ? Math.max(...subsidyCards.map((card) => card.saves))
+    : null
+  const heroHeadline =
+    payableAmount !== null
+      ? formatMoney(currency, payableAmount)
+      : topCoverage !== null
+        ? `Up to ${topCoverage}%`
+        : null
+
+  const GRID_COLS: Record<number, string> = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' }
   const summaryItems = [
-    {
-      label: t.original_bill,
-      value: formatMoney(currency, billTotal),
-      color: 'text-neutral-700',
-    },
-    {
-      label: t.total_saved,
-      value: formatMoney(currency, savedAmount),
-      color: 'text-success-500',
-    },
-    {
-      label: t.before_medisave,
-      value: formatMoney(currency, payableAmount),
-      color: 'text-teal-700',
-    },
-  ]
+    billTotal !== null && { label: t.original_bill, value: formatMoney(currency, billTotal), color: 'text-neutral-700' },
+    savedAmount !== null && { label: t.total_saved, value: formatMoney(currency, savedAmount), color: 'text-success-500' },
+    payableAmount !== null && { label: t.before_medisave, value: formatMoney(currency, payableAmount), color: 'text-teal-700' },
+  ].filter((item): item is { label: string; value: string; color: string } => Boolean(item))
 
   return (
     <div className="min-h-full bg-neutral-50 flex flex-col">
       <TopBar
-        title={t.results_title}
+        title={screenTitle}
         subtitle={`${extracted.institution ?? 'Healthcare provider'} · ${visitDate}`}
         onBack={() => onNavigate('confirm')}
         right={
@@ -253,124 +304,116 @@ export default function Results({
         initial="hidden"
         animate="show"
       >
-        <motion.div
-          variants={fadeUp}
-          role="status"
-          aria-label={`${subsidyCards.length} ${t.applicable_schemes_found}`}
-        >
-          <Card className="p-4 flex items-center gap-4 bg-white border-teal-200">
-            <div className="w-14 h-14 rounded-2xl bg-teal-700 text-white grid place-items-center flex-shrink-0">
-              <span className="text-2xl font-bold">{subsidyCards.length}</span>
-            </div>
-            <div>
-              <p className="text-lg font-bold text-neutral-900">
-                {t.applicable_schemes_found}
-              </p>
-              <p className="text-sm text-neutral-500">
-                {subsidyCards.length === 0
-                  ? t.no_subsidies_returned
-                  : t.requires_confirmation}
-              </p>
-            </div>
-          </Card>
-        </motion.div>
+        {sections.title !== 'meds' && (
+          <motion.div variants={fadeUp}>
+            <OcrBanner text={t.estimate_banner} />
+          </motion.div>
+        )}
 
-        <motion.div variants={fadeUp}>
-          <Card className="p-5 text-center bg-gradient-to-b from-navy-50 to-white border-navy-100">
-            <div className="flex justify-end mb-2">
-              <TTSButton
-                text={spokenText}
-                speaking={speaking}
-                onToggle={toggle}
-                size="sm"
-              />
-            </div>
+        {sections.hero && (
+          <motion.div variants={fadeUp}>
+            <TTSPanel title={t.listen_results_title} subtitle={t.listen_all_sub} text={spokenText} language={language} />
+          </motion.div>
+        )}
 
-            <VoiceWarning
-              language={language}
-              visible={ttsError}
-              className="mb-3 text-left"
-            />
-
-            <p className="text-sm font-semibold text-neutral-500 uppercase tracking-wider mb-2">
-              {t.you_pay}
-            </p>
-            <p className="text-[52px] font-bold text-teal-700 leading-none mb-2">
-              {formatMoney(currency, payableAmount)}
-            </p>
-            <p className="text-sm text-neutral-500 mb-4">
-              {!hasAppliedSubsidy && billTotal !== null
-                ? t.no_matching
-                : t.requires_confirmation}
-            </p>
-
-            <Divider className="mb-4" />
-
-            <div className="grid grid-cols-3 gap-1 text-center">
-              {summaryItems.map((item) => (
-                <div key={item.label}>
-                  <p className={`text-xl font-bold ${item.color}`}>
-                    {item.value}
+        {sections.hero && (
+          <motion.div variants={fadeUp}>
+            <Card className="p-5 text-center bg-gradient-to-b from-navy-50 to-white border-navy-100">
+              {heroHeadline !== null ? (
+                <>
+                  <p className="text-sm font-semibold text-neutral-500 uppercase tracking-wider mb-2">
+                    {t.you_pay}
                   </p>
-                  <p className="text-xs text-neutral-400 mt-0.5">
-                    {item.label}
+                  <p className="text-[52px] font-bold text-teal-700 leading-none mb-2">
+                    {heroHeadline}
                   </p>
+                  {(payableAmount === null || !hasAppliedSubsidy) && (
+                    <p className="text-sm text-neutral-500 mb-4">
+                      {payableAmount === null ? t.requires_confirmation : t.no_matching}
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm text-neutral-500 py-2">{t.no_bill_data}</p>
+              )}
+
+              {summaryItems.length > 0 && (
+                <>
+                  <Divider className="mb-4" />
+                  <div className={`grid gap-1 text-center ${GRID_COLS[summaryItems.length]}`}>
+                    {summaryItems.map((item) => (
+                      <div key={item.label}>
+                        <p className={`text-xl font-bold ${item.color}`}>
+                          {item.value}
+                        </p>
+                        <p className="text-xs text-neutral-400 mt-0.5">
+                          {item.label}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </>
+              )}
+            </Card>
+          </motion.div>
+        )}
+
+        {(sections.bill || (sections.meds && sections.title !== 'meds')) && (
+          <motion.div
+            variants={fadeUp}
+            className={sections.bill && sections.meds ? 'grid grid-cols-2 gap-3' : ''}
+          >
+            {sections.bill && (
+              <button
+                onClick={() => extracted.bill && onNavigate('bill')}
+                disabled={!extracted.bill}
+                className="w-full bg-teal-50 border border-teal-200 rounded-2xl p-4 text-left hover:bg-teal-100 active:scale-[0.97] transition-all shadow-card disabled:opacity-55"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-700 grid place-items-center mb-3">
+                  <FileText className="w-5 h-5 text-white" />
                 </div>
-              ))}
-            </div>
-          </Card>
-        </motion.div>
+                <p className="text-sm font-bold text-teal-700">
+                  {t.bill_title}
+                </p>
+                <p className="text-xs text-teal-500 mt-0.5">
+                  {extracted.bill ? t.every_charge : t.no_bill_data}
+                </p>
+              </button>
+            )}
 
-        <motion.div variants={fadeUp} className="grid grid-cols-2 gap-3">
-          <button
-            onClick={() => extracted.bill && onNavigate('bill')}
-            disabled={!extracted.bill}
-            className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-left hover:bg-teal-100 active:scale-[0.97] transition-all shadow-card disabled:opacity-55"
-          >
-            <div className="w-10 h-10 rounded-xl bg-teal-700 grid place-items-center mb-3">
-              <FileText className="w-5 h-5 text-white" />
-            </div>
-            <p className="text-sm font-bold text-teal-700">
-              {t.bill_title}
-            </p>
-            <p className="text-xs text-teal-500 mt-0.5">
-              {extracted.bill ? t.every_charge : t.no_bill_data}
-            </p>
-          </button>
+            {sections.meds && sections.title !== 'meds' && extracted.prescriptions.length > 0 && (
+              <button
+                onClick={() => onNavigate('medications')}
+                className="w-full bg-teal-50 border border-teal-200 rounded-2xl p-4 text-left hover:bg-teal-100 active:scale-[0.97] transition-all shadow-card"
+              >
+                <div className="w-10 h-10 rounded-xl bg-teal-500 grid place-items-center mb-3">
+                  <Pill className="w-5 h-5 text-white" />
+                </div>
+                <p className="text-sm font-bold text-teal-700">
+                  {t.meds_title}
+                </p>
+                <p className="text-xs text-teal-500 mt-0.5">
+                  {t.med_instructions}
+                </p>
+              </button>
+            )}
+          </motion.div>
+        )}
 
-          <button
-            onClick={() =>
-              extracted.prescriptions.length && onNavigate('medications')
-            }
-            disabled={!extracted.prescriptions.length}
-            className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-left hover:bg-teal-100 active:scale-[0.97] transition-all shadow-card disabled:opacity-55"
-          >
-            <div className="w-10 h-10 rounded-xl bg-teal-500 grid place-items-center mb-3">
-              <Pill className="w-5 h-5 text-white" />
-            </div>
-            <p className="text-sm font-bold text-teal-700">
-              {t.meds_title}
-            </p>
-            <p className="text-xs text-teal-500 mt-0.5">
-              {extracted.prescriptions.length
-                ? t.med_instructions
-                : t.no_medications}
-            </p>
-          </button>
-        </motion.div>
+        {sections.title === 'meds' && (
+          <motion.div variants={fadeUp} className="flex flex-col gap-4">
+            <MedicationsPanel prescriptions={extracted.prescriptions} />
+          </motion.div>
+        )}
 
-        <motion.div variants={fadeUp}>
-          <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-3">
-            {t.applied_subsidies}
-          </p>
+        {sections.subsidies && (
+          <motion.div variants={fadeUp}>
+            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-3">
+              {t.applied_subsidies}
+            </p>
 
-          <div className="flex flex-col gap-3">
-            {subsidyCards.length === 0 ? (
-              <Card className="p-5 text-center text-neutral-500">
-                {t.no_subsidies_returned}
-              </Card>
-            ) : (
-              subsidyCards.map((card) => (
+            <div className="flex flex-col gap-3">
+              {subsidyCards.map((card) => (
                 <Card
                   key={card.id}
                   className="p-4"
@@ -410,27 +453,26 @@ export default function Results({
                     </div>
                   </div>
                 </Card>
-              ))
-            )}
-          </div>
-        </motion.div>
+              ))}
+            </div>
+          </motion.div>
+        )}
 
-        <motion.div
-          variants={fadeUp}
-          className="bg-teal-50 border border-teal-200 rounded-2xl p-4 flex gap-3"
-        >
-          <span className="text-xl">💳</span>
-          <div>
-            <p className="text-sm font-bold text-teal-700">
-              {t.confirmation_title}
+        {sections.title === 'preview' && (
+          <motion.div
+            variants={fadeUp}
+            className="bg-teal-50 border border-teal-200 rounded-2xl p-4"
+          >
+            <p className="text-sm font-bold text-teal-700 mb-1">{t.what_this_means}</p>
+            <p className="text-sm text-teal-600">
+              {subsidyCards.length > 0
+                ? t.requires_confirmation
+                : t.no_subsidies_returned}
             </p>
-            <p className="text-sm text-teal-600 mt-0.5">
-              {t.confirmation_body}
-            </p>
-          </div>
-        </motion.div>
+          </motion.div>
+        )}
 
-        {message && (
+        {sections.subsidies && message && (
           <motion.div
             variants={fadeUp}
             className="bg-teal-50 border border-teal-200 rounded-2xl p-4 text-sm text-teal-700"
@@ -449,16 +491,6 @@ export default function Results({
           >
             <Printer className="w-5 h-5" />
             {t.print_results}
-          </Button>
-          <Button
-            variant="secondary"
-            size="md"
-            fullWidth
-            disabled
-            className="gap-2"
-          >
-            <Share2 className="w-5 h-5" />
-            {t.share_doctor}
           </Button>
         </motion.div>
       </motion.div>

@@ -16,7 +16,7 @@ import { config } from 'dotenv'
 config({ path: '.env.local' })
 import { readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
-import { applyGlossary, type GlossaryLang } from './glossary'
+import { applyGlossary, type GlossaryLang } from '../src/lib/glossary'
 
 // ── Config ─────────────────────────────────────────────────────────────────
 
@@ -97,7 +97,7 @@ async function translateBatched(texts: string[], targetLang: string): Promise<st
 
 function extractEnglishKeys(source: string): Record<string, string> {
   // Find the en: { ... } block
-  const enMatch = source.match(/en:\s*\{([\s\S]*?)\n  \},?\n\n  [Zz][Hh]:/)
+  const enMatch = source.match(/en:\s*\{([\s\S]*?)\r?\n  \},?\r?\n\r?\n  [Zz][Hh]:/)
   if (!enMatch) throw new Error('Could not find en: { } block in i18n.tsx')
 
   const block = enMatch[1]
@@ -134,12 +134,12 @@ function patchI18n(source: string, lang: string, entries: Record<string, string>
   // Match:  zh: {   ...content...   },
   // We look for  `  zh: {` up to next `  },` (closing of that lang block)
   // Match both lowercase (zh/ms/ta) and uppercase (ZH/MS/TA) existing blocks
-  const blockRe = new RegExp(`  ${langLower}:\\s*\\{[\\s\\S]*?\\n  \\},`, 'gi')
+  const blockRe = new RegExp(`  ${langLower}:\\s*\\{[\\s\\S]*?\\r?\\n  \\},`, 'gi')
   if (!blockRe.test(source)) {
     throw new Error(`Could not find ${langLower}: { } block in i18n.tsx`)
   }
   return source.replace(
-    new RegExp(`  ${langLower}:\\s*\\{[\\s\\S]*?\\n  \\},`, 'i'),
+    new RegExp(`  ${langLower}:\\s*\\{[\\s\\S]*?\\r?\\n  \\},`, 'i'),
     newBlock,
   )
 }
