@@ -1,7 +1,7 @@
 import { useEffect, useState, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { motion, AnimatePresence } from 'framer-motion'
-import { FileText, ShieldCheck, RefreshCw, ChevronRight, CheckSquare, Square, Tag, Check, AlertTriangle } from 'lucide-react'
+import { FileText, ShieldCheck, RefreshCw, ChevronRight, CheckSquare, Square, Tag, Check, AlertTriangle, Calendar } from 'lucide-react'
 import { Button, Card, TopBar } from '../components/ui'
 import { useLang, T } from '../hooks/i18n'
 import type { DocumentTypeId, ProcessDocumentResponse, Screen } from '../types'
@@ -12,6 +12,8 @@ interface Props {
   onFileReady: (file: File) => void
   result: ProcessDocumentResponse | null
   scanError: boolean
+  birthdate: string | null
+  onBirthdateChange: (isoDate: string) => void
 }
 
 // Metadata for each classifiable document type — used both for the auto-detected
@@ -36,7 +38,7 @@ function ConsentCheckbox({ checked, onToggle, label }: { checked: boolean; onTog
   )
 }
 
-export default function Confirm({ onNavigate, file, onFileReady, result, scanError }: Props) {
+export default function Confirm({ onNavigate, file, onFileReady, result, scanError, birthdate, onBirthdateChange }: Props) {
   const { language } = useLang()
   const t = T[language]
   const [checked1, setChecked1]     = useState(false)
@@ -46,6 +48,7 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => file && file.type !== 'application/pdf' ? URL.createObjectURL(file) : null)
   const fileInput                   = useRef<HTMLInputElement>(null)
   const bothChecked                 = checked1 && checked2
+  const today                       = new Date().toISOString().slice(0, 10)
 
   const detectedId = manualOverride ?? result?.extracted.documentType ?? null
   const docType = useMemo(() => DOC_TYPE_DEFS.find(d => d.id === detectedId) ?? null, [detectedId])
@@ -158,6 +161,24 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
           </AnimatePresence>
         </div>
 
+        {/* Birthdate — used to match age-gated subsidy schemes; editable at any time */}
+        <div>
+          <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">Birthdate</p>
+          <div className="w-full bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-3 shadow-card">
+            <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
+              <Calendar className="w-5 h-5 text-teal-700" />
+            </div>
+            <input
+              type="date"
+              value={birthdate ?? ''}
+              max={today}
+              onChange={e => e.target.value && onBirthdateChange(e.target.value)}
+              className="flex-1 text-base font-semibold text-neutral-900 outline-none bg-transparent"
+              aria-label="Birthdate"
+            />
+          </div>
+        </div>
+
         {/* Before-visit callout when relevant */}
         {docType && (docType.id === 'referral' || docType.id === 'diagnosis' || docType.id === 'prescription') && (
           <motion.div
@@ -197,8 +218,8 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
         </Card>
 
         <AnimatePresence>
-          <motion.div animate={{ opacity: bothChecked ? 1 : 0.5 }} transition={{ duration: 0.2 }}>
-            <Button variant="primary" size="lg" fullWidth disabled={!bothChecked}
+          <motion.div animate={{ opacity: bothChecked && birthdate ? 1 : 0.5 }} transition={{ duration: 0.2 }}>
+            <Button variant="primary" size="lg" fullWidth disabled={!bothChecked || !birthdate}
               onClick={() => onNavigate('processing')} className="gap-2">
               {t.process_btn}
               <ChevronRight className="w-5 h-5" />
@@ -206,7 +227,9 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
           </motion.div>
         </AnimatePresence>
 
-        {!bothChecked && (
+        {!birthdate ? (
+          <p className="text-sm text-neutral-400 text-center -mt-1">Please enter your birthdate to continue.</p>
+        ) : !bothChecked && (
           <p className="text-sm text-neutral-400 text-center -mt-1">{t.tick_both}</p>
         )}
       </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import DocumentCapture from "@/components/DocumentCapture";
 import LoadingProgress from "@/components/LoadingProgress";
 import ResultsDisplay from "@/components/ResultsDisplay";
@@ -8,9 +8,15 @@ import ErrorDisplay from "@/components/ErrorDisplay";
 import LanguageToggle from "@/components/LanguageToggle";
 import TTSControls from "@/components/TTSControls";
 import ManualFallbackForm from "@/components/ManualFallbackForm";
+import BirthdateModal from "@/components/BirthdateModal";
 import { MedicationScanner } from "@/components/MedicationScanner";
 import MedicationResultDisplay from "@/components/MedicationResultDisplay";
 import HandwritingWarning from "@/components/HandwritingWarning";
+import {
+  getBirthdateCookie,
+  setBirthdateCookie,
+  birthYearFromIsoDate,
+} from "@/lib/birthdate-cookie";
 import type {
   AppState,
   ProcessingStage,
@@ -50,6 +56,35 @@ export default function CheckPage() {
     () => typeof window !== "undefined" && "speechSynthesis" in window
   );
 
+  // --- Birthdate (session cookie, editable at any time) ---
+  const [birthdate, setBirthdateState] = useState<string | null>(null);
+  const [showBirthdateModal, setShowBirthdateModal] = useState(false);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+
+  useEffect(() => {
+    setBirthdateState(getBirthdateCookie());
+  }, []);
+
+  const handleBirthdateSave = useCallback(
+    (isoDate: string) => {
+      setBirthdateCookie(isoDate);
+      setBirthdateState(isoDate);
+      setShowBirthdateModal(false);
+      if (pendingFile) {
+        const file = pendingFile;
+        setPendingFile(null);
+        processDocument(file);
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pendingFile]
+  );
+
+  const handleBirthdateModalClose = useCallback(() => {
+    setShowBirthdateModal(false);
+    setPendingFile(null);
+  }, []);
+
   // --- Language change handler ---
   const handleLanguageChange = useCallback((lang: SupportedLanguage) => {
     setState((prev) => ({ ...prev, language: lang }));
@@ -71,6 +106,9 @@ export default function CheckPage() {
 
       const formData = new FormData();
       formData.append("file", file);
+      if (birthdate) {
+        formData.append("birthYear", String(birthYearFromIsoDate(birthdate)));
+      }
 
       // Transition to "reading" stage once upload starts
       setState((prev) => ({ ...prev, processingStage: "reading" }));
@@ -124,14 +162,19 @@ export default function CheckPage() {
         },
       }));
     }
-  }, []);
+  }, [birthdate]);
 
   // --- File submission from DocumentCapture ---
   const handleFileSubmit = useCallback(
     (file: File) => {
+      if (!birthdate) {
+        setPendingFile(file);
+        setShowBirthdateModal(true);
+        return;
+      }
       processDocument(file);
     },
-    [processDocument]
+    [birthdate, processDocument]
   );
 
   // --- Retry: re-process the retained file ---
@@ -278,7 +321,7 @@ export default function CheckPage() {
 
   // --- Manual fallback form submission ---
   const handleManualSubmit = useCallback(
-    async (data: ManualInputData) => {
+    async (data: Omit<ManualInputData, "birthYear">) => {
       setState((prev) => ({
         ...prev,
         stage: "processing",
@@ -291,7 +334,12 @@ export default function CheckPage() {
         if (state.selectedFile) {
           formData.append("file", state.selectedFile);
         }
-        formData.append("birthYear", String(data.birthYear));
+        if (birthdate) {
+          formData.append(
+            "birthYear",
+            String(birthYearFromIsoDate(birthdate))
+          );
+        }
         formData.append("clinicType", data.clinicType);
         formData.append(
           "chronicConditions",
@@ -335,7 +383,7 @@ export default function CheckPage() {
         }));
       }
     },
-    [state.selectedFile]
+    [state.selectedFile, birthdate]
   );
 
   // --- Compose TTS text from subsidies ---
@@ -375,7 +423,24 @@ export default function CheckPage() {
             current={state.language}
             onChange={handleLanguageChange}
           />
+          {birthdate && (
+            <button
+              onClick={() => setShowBirthdateModal(true)}
+              className="text-base font-medium text-blue-600 underline underline-offset-2 hover:text-blue-800 min-h-[44px] px-2"
+            >
+              Birthdate: {birthdate} (Edit)
+            </button>
+          )}
         </header>
+
+        {/* Birthdate modal — required before first scan, editable at any time */}
+        {showBirthdateModal && (
+          <BirthdateModal
+            initialValue={birthdate}
+            onSave={handleBirthdateSave}
+            onClose={handleBirthdateModalClose}
+          />
+        )}
 
         {/* Stage: Capture — with mode toggle */}
         {state.stage === "capture" && (

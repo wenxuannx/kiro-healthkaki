@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Bell, Globe, Info, Shield, Type, Volume2 } from 'lucide-react'
+import { Bell, Calendar, Globe, Info, Shield, Type, Volume2 } from 'lucide-react'
 import { Card, Toggle, TopBar } from '../components/ui'
 import { useLang, T } from '../hooks/i18n'
 import { useTTS } from '../hooks/useTTS'
@@ -8,7 +8,11 @@ import VoiceWarning from '../components/VoiceWarning'
 import { useTextSize, useHighContrast } from '../App'
 import type { Language, Screen } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void }
+interface Props {
+  onNavigate: (s: Screen) => void
+  birthdate: string | null
+  onEditBirthdate: () => void
+}
 
 const LANGUAGES: { code: Language; label: string; native: string }[] = [
   { code: 'en', label: 'English', native: 'English' },
@@ -21,7 +25,7 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
   return <section><div className="flex items-center gap-2 mb-3"><Icon className="w-4 h-4 text-teal-700" /><h2 className="text-xs font-bold text-neutral-400 uppercase tracking-widest">{title}</h2></div><Card className="p-4">{children}</Card></section>
 }
 
-export default function Settings({}: Props) {
+export default function Settings({ birthdate, onEditBirthdate }: Props) {
   const { language, setLanguage } = useLang()
   const t = T[language]
   const { toggle, speaking, rate, setRate, supported, error: ttsError } = useTTS(language)
@@ -83,6 +87,18 @@ export default function Settings({}: Props) {
           <Toggle id="high-contrast" label={t.high_contrast} sublabel={t.high_contrast_sub} checked={highContrast} onChange={setHighContrast} />
         </Section>
 
+
+        <Section icon={Calendar} title="Birthdate">
+          <div className="flex items-center justify-between">
+            <span className="text-base text-neutral-900 font-medium">{birthdate ?? 'Not set'}</span>
+            <button
+              onClick={onEditBirthdate}
+              className="text-sm font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-3 py-1.5 hover:bg-teal-100 active:scale-95 transition-all"
+            >
+              Edit
+            </button>
+          </div>
+        </Section>
 
         <Section icon={Shield} title={t.privacy_section}>
           <p className="text-sm text-neutral-600 leading-relaxed">{t.privacy_full}</p>

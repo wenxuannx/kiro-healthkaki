@@ -3,6 +3,12 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { Home as HomeIcon, HelpCircle, Settings as SettingsIcon } from 'lucide-react'
 
 import { LangProvider, useLang, T } from './hooks/i18n'
+import BirthdateModal from './components/BirthdateModal'
+import {
+  getBirthdateCookie,
+  setBirthdateCookie,
+  birthYearFromIsoDate,
+} from './lib/birthdate-cookie'
 
 // ── Text size context ─────────────────────────────────────────
 // Steps 0–4 map to root font sizes: 13 14 16 18 20 px
@@ -94,19 +100,21 @@ function AppInner() {
   // so the auto-detected document type is ready by the time the user reaches Confirm.
   useEffect(() => () => activeRequest.current?.abort(), [])
 
-  const processFile = useCallback((selected: File) => {
+  // --- Birthdate (session cookie, editable at any time) ---
+  const [birthdate, setBirthdateState] = useState<string | null>(null)
+  const [showBirthdateModal, setShowBirthdateModal] = useState(false)
+
+  useEffect(() => { setBirthdateState(getBirthdateCookie()) }, [])
+
+  const runFetch = useCallback((selected: File, birthYear: number) => {
     activeRequest.current?.abort()
     const controller = new AbortController()
     const requestId = ++requestSequence.current
     activeRequest.current = controller
 
-    setFile(selected)
-    setApiResult(null)
-    setProcessingError(null)
-    setSubsidy(null)
-
     const formData = new FormData()
     formData.append('file', selected)
+    formData.append('birthYear', String(birthYear))
 
     const timeout = window.setTimeout(() => controller.abort(), DOCUMENT_TIMEOUT_MS)
 
@@ -167,6 +175,35 @@ function AppInner() {
       })
   }, [])
 
+  // Entry point used by Home/Camera/Confirm on file selection. Resets
+  // in-flight state immediately (so Confirm's preview updates right away).
+  // If a birthdate is already on file (returning session), the fetch kicks
+  // off right away so auto-detect is ready by the time Confirm renders —
+  // otherwise it waits for the inline birthdate field on Confirm to fire it.
+  const processFile = useCallback((selected: File) => {
+    activeRequest.current?.abort()
+    setFile(selected)
+    setApiResult(null)
+    setProcessingError(null)
+    setSubsidy(null)
+
+    if (birthdate) {
+      runFetch(selected, birthYearFromIsoDate(birthdate))
+    }
+  }, [birthdate, runFetch])
+
+  // Shared by the inline Confirm-screen field and the Settings "Edit" modal.
+  // Saves the cookie, then — if a file is waiting on a birthdate — fires the
+  // (re)fetch, so changing the birthdate later also refreshes the subsidy match.
+  const handleBirthdateChange = useCallback((isoDate: string) => {
+    setBirthdateCookie(isoDate)
+    setBirthdateState(isoDate)
+    setShowBirthdateModal(false)
+    if (file) {
+      runFetch(file, birthYearFromIsoDate(isoDate))
+    }
+  }, [file, runFetch])
+
   const retryProcessing = useCallback(() => {
     if (!file) {
       navigate('camera')
@@ -181,14 +218,14 @@ function AppInner() {
     switch (screen) {
       case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
       case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={processFile} />
-      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} />
+      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} birthdate={birthdate} onBirthdateChange={handleBirthdateChange} />
       case 'processing':  return <ProcessingScreen onNavigate={navigate} result={apiResult} scanError={processingError !== null} />
       case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} apiResult={apiResult} />
       case 'bill':        return <BillScreen onNavigate={navigate} bill={apiResult?.extracted.bill ?? null} institution={apiResult?.extracted.institution ?? null} visitDate={apiResult?.extracted.visitDate ?? null} />
       case 'medications': return <MedicationsScreen onNavigate={navigate} prescriptions={apiResult?.extracted.prescriptions ?? []} />
       case 'details':     return <DetailsScreen onNavigate={navigate} subsidy={selectedSubsidy} />
       case 'help':        return <HelpScreen onNavigate={navigate} />
-      case 'settings':    return <SettingsScreen onNavigate={navigate} />
+      case 'settings':    return <SettingsScreen onNavigate={navigate} birthdate={birthdate} onEditBirthdate={() => setShowBirthdateModal(true)} />
       case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" errorMessage={processingError?.message} errorStage={processingError?.stage} timedOut={processingError?.timedOut} onRetry={retryProcessing} />
       default:            return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
     }
@@ -196,6 +233,14 @@ function AppInner() {
 
   return (
     <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+      {showBirthdateModal && (
+        <BirthdateModal
+          initialValue={birthdate}
+          onSave={handleBirthdateChange}
+          onClose={() => setShowBirthdateModal(false)}
+        />
+      )}
+
       {/* Screen content */}
       <div className="flex-1 relative overflow-hidden">
         <AnimatePresence custom={dir} mode="wait">

@@ -3,8 +3,10 @@
 import { useState } from "react";
 import type { ManualInputData } from "../types";
 
+type ManualFallbackData = Omit<ManualInputData, "birthYear">;
+
 interface ManualFallbackFormProps {
-  onSubmit: (data: ManualInputData) => void;
+  onSubmit: (data: ManualFallbackData) => void;
   isProcessing: boolean;
 }
 
@@ -37,21 +39,12 @@ export default function ManualFallbackForm({
   onSubmit,
   isProcessing,
 }: ManualFallbackFormProps) {
-  const [birthYear, setBirthYear] = useState<number | "">("");
   const [clinicType, setClinicType] = useState<
     ManualInputData["clinicType"] | ""
   >("");
   const [chronicConditions, setChronicConditions] = useState<string[]>([]);
 
-  const currentYear = new Date().getFullYear();
-
-  // Generate birth year options from current year down to 1920
-  const birthYearOptions: number[] = [];
-  for (let year = currentYear; year >= 1920; year--) {
-    birthYearOptions.push(year);
-  }
-
-  const isFormValid = birthYear !== "" && clinicType !== "";
+  const isFormValid = clinicType !== "";
 
   const handleConditionToggle = (condition: string) => {
     setChronicConditions((prev) =>
@@ -66,7 +59,6 @@ export default function ManualFallbackForm({
     if (!isFormValid) return;
 
     onSubmit({
-      birthYear: birthYear as number,
       clinicType: clinicType as ManualInputData["clinicType"],
       chronicConditions,
     });
@@ -85,32 +77,6 @@ export default function ManualFallbackForm({
         <p className="text-lg text-gray-600 mt-2">
           We need a few more details to find your subsidies.
         </p>
-      </div>
-
-      {/* Birth Year Dropdown */}
-      <div className="space-y-2">
-        <label
-          htmlFor="birth-year"
-          className="block text-lg font-medium text-gray-900"
-        >
-          Year of Birth
-        </label>
-        <select
-          id="birth-year"
-          value={birthYear}
-          onChange={(e) =>
-            setBirthYear(e.target.value ? Number(e.target.value) : "")
-          }
-          className="w-full min-h-[44px] px-4 py-3 text-lg border-2 border-gray-300 rounded-lg bg-white text-gray-900 focus:border-blue-500 focus:ring-2 focus:ring-blue-200 outline-none"
-          aria-required="true"
-        >
-          <option value="">Select your birth year</option>
-          {birthYearOptions.map((year) => (
-            <option key={year} value={year}>
-              {year}
-            </option>
-          ))}
-        </select>
       </div>
 
       {/* Clinic Type Selector */}
