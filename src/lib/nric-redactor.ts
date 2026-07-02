@@ -145,6 +145,7 @@ export function redactExtractedData(data: RawExtractedData): RedactedExtractedDa
       dosage: prescription.dosage === null ? null : redactNric(prescription.dosage).redactedText,
       frequency: prescription.frequency === null ? null : redactNric(prescription.frequency).redactedText,
       instructions: prescription.instructions === null ? null : redactNric(prescription.instructions).redactedText,
+      purpose: prescription.purpose === null ? null : redactNric(prescription.purpose).redactedText,
     }));
 
     const redactedBill = data.bill === null ? null : {

@@ -3,28 +3,43 @@ import Image from 'next/image'
 import { motion } from 'framer-motion'
 import { ScanLine, ImageUp, HelpCircle, Settings } from 'lucide-react'
 const healthkakiLogo = '/healthkaki_logo.png'
+const healthkakiIcon = '/healthkaki_icon.png'
 import { useLargeText } from '../App'
 import { useLang, T } from '../hooks/i18n'
-import type { Screen } from '../types'
+import type { DocumentTypeId, Screen } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void; onFileReady?: (f: File) => void }
+interface Props {
+  onNavigate: (s: Screen) => void
+  onFileReady?: (f: File) => void
+  onSelectCategory?: (id: DocumentTypeId | null) => void
+}
 
 const CHIP_KEYS = [
-  { icon: '📋', key: 'chip_referral' },
-  { icon: '🩺', key: 'chip_diagnosis' },
-  { icon: '💊', key: 'chip_prescription' },
-  { icon: '📄', key: 'chip_followup' },
-  { icon: '🧾', key: 'chip_bill' },
-  { icon: '📝', key: 'chip_specialist' },
-] as const
+  { icon: '📋', key: 'chip_referral', docType: 'referral' },
+  { icon: '💊', key: 'chip_prescription', docType: 'prescription' },
+  { icon: '🧾', key: 'chip_bill', docType: 'invoice' },
+] as const satisfies readonly { icon: string; key: string; docType: DocumentTypeId }[]
 
-export default function Home({ onNavigate, onFileReady }: Props) {
+export default function Home({ onNavigate, onFileReady, onSelectCategory }: Props) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const { largeText } = useLargeText()
   const { language } = useLang()
   const t = T[language]
 
-  const handleGalleryUpload = () => fileInputRef.current?.click()
+  const handleGalleryUpload = () => {
+    onSelectCategory?.(null)
+    fileInputRef.current?.click()
+  }
+
+  const handleScan = () => {
+    onSelectCategory?.(null)
+    onNavigate('camera')
+  }
+
+  const handleChipScan = (docType: DocumentTypeId) => {
+    onSelectCategory?.(docType)
+    onNavigate('camera')
+  }
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -39,7 +54,7 @@ export default function Home({ onNavigate, onFileReady }: Props) {
     <div className="min-h-full bg-neutral-50 flex flex-col">
       {/* Header */}
       <div className="bg-white border-b border-neutral-200 px-5 pt-3 pb-4 flex items-center justify-between">
-        <Image src={healthkakiLogo} alt="HealthKaki" width={144} height={32} className="h-8 w-auto" priority />
+        <Image src={healthkakiLogo} alt="HealthKaki" width={144} height={32} style={{ height: 32, width: 'auto' }} priority />
         <button
           onClick={() => onNavigate('settings')}
           className="w-9 h-9 rounded-full bg-neutral-100 flex items-center justify-center text-neutral-500 hover:bg-neutral-200 transition-colors"
@@ -57,7 +72,7 @@ export default function Home({ onNavigate, onFileReady }: Props) {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
         >
-           <Image src={healthkakiLogo} alt="HealthKaki" width={112} height={112} className="mx-auto mb-4 h-14 w-auto" priority />
+           <Image src={healthkakiIcon} alt="HealthKaki" width={112} height={112} className="mx-auto mb-4" style={{ height: 56, width: 'auto' }} priority />
           <h1 className="font-bold leading-snug mb-6" style={{ fontSize: largeText ? 28 : 24, color: '#1A7070' }}>
             {t.home_headline_1}<br />{t.home_headline_2}
           </h1>
@@ -72,7 +87,7 @@ export default function Home({ onNavigate, onFileReady }: Props) {
           transition={{ delay: 0.2, duration: 0.4 }}
         >
           <button
-            onClick={() => onNavigate('camera')}
+            onClick={handleScan}
             className="w-full flex items-center justify-center gap-3 rounded-2xl font-bold text-white transition-all active:scale-[0.98]"
             style={{ height: largeText ? 68 : 60, fontSize: largeText ? 20 : 18, backgroundColor: '#1A7070' }}
           >
@@ -113,7 +128,7 @@ export default function Home({ onNavigate, onFileReady }: Props) {
                 initial={{ opacity: 0, scale: 0.96 }}
                 animate={{ opacity: 1, scale: 1 }}
                 transition={{ delay: 0.4 + i * 0.06 }}
-                onClick={() => onNavigate('camera')}
+                onClick={() => handleChipScan(chip.docType)}
                 className="relative bg-white border border-neutral-200 rounded-[14px] flex items-center text-left active:scale-[0.97] transition-all"
                 style={{ height: 72, padding: '0 14px', boxShadow: '0 1px 4px rgba(0,0,0,0.07)' }}
               >

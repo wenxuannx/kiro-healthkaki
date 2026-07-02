@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { CheckCircle2, XCircle, Phone, ChevronRight } from 'lucide-react'
 import { Button, Card, Badge, TopBar } from '../components/ui'
+import TTSPanel from '../components/TTSPanel'
 import { useLang, T } from '../hooks/i18n'
 import type { Screen, SubsidyCard } from '../types'
 
@@ -13,6 +14,17 @@ export default function Details({ onNavigate, subsidy }: Props) {
   const { language } = useLang()
   const t = T[language]
   const s = subsidy
+
+  const spokenText = s
+    ? [
+        s.name,
+        s.description,
+        `${t.subsidy_covers} ${s.saves}%. ${t.you_pay} ${s.outOfPocket}%.`,
+        ...s.benefits,
+        s.eligible ? t.you_qualify : t.not_applicable_profile,
+        s.howToUse,
+      ].filter(Boolean).join('. ')
+    : ''
 
   if (!s) {
     return (
@@ -33,6 +45,7 @@ export default function Details({ onNavigate, subsidy }: Props) {
       <TopBar title={s.name} subtitle={s.chineseName} onBack={() => onNavigate('results')} />
 
       <div className="flex-1 overflow-y-auto px-5 py-5 flex flex-col gap-4">
+        <TTSPanel title={t.listen_subsidy_title} subtitle={t.listen_all_sub} text={spokenText} language={language} />
 
         {/* What is this subsidy */}
         <Card className="p-5">

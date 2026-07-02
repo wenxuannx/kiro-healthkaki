@@ -4,6 +4,9 @@
  * Values are the exact translations to use for each target language,
  * overriding whatever DeepL returns.
  *
+ * Shared between the dev-time i18n translation script (scripts/translate.ts)
+ * and the runtime DeepL client (src/lib/deepl.ts).
+ *
  * Add entries whenever DeepL mistranslates a proper name or scheme.
  */
 

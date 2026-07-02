@@ -3,6 +3,7 @@ import { validateFile, validatePdfPageCount } from "@/lib/file-validator";
 import { processDocument } from "@/lib/ocr-pipeline";
 import { lookupSubsidies } from "@/lib/subsidy-lookup";
 import { translateBatch, NON_ENGLISH_LANGUAGES } from "@/lib/translator";
+import { translatePurposes, type DeepLLang } from "@/lib/deepl";
 import { createClient } from "@/services/supabase/server";
 import {
   FileValidationError,
@@ -113,40 +114,66 @@ export async function POST(request: NextRequest) {
       // Step 1: OCR extraction + NRIC redaction (handled internally by processDocument)
       const { extracted } = await processDocument(fileBuffer, file.type);
 
-      // Step 1.25: Translate prescription frequency + instructions into the
-      // non-English languages for multilingual display/TTS. Runs AFTER NRIC
-      // redaction so no unredacted text is ever sent for translation.
-      // Non-fatal: on failure the fields stay untranslated (English fallback).
+      // Step 1.25: Translate prescription frequency/instructions (via Gemini) and
+      // purpose (via DeepL, kept off the Gemini quota) into the non-English
+      // languages for multilingual display/TTS. Runs AFTER NRIC redaction so no
+      // unredacted text is ever sent for translation. Each provider is independently
+      // non-fatal: on failure those fields stay untranslated (English fallback).
       if (extracted.prescriptions.length > 0) {
-        try {
-          const translated = await translateBatch(
+        const DEEPL_TO_SUPPORTED: Record<DeepLLang, "cmn-Hans-CN" | "ms-MY" | "ta-IN"> = {
+          ZH: "cmn-Hans-CN",
+          MS: "ms-MY",
+          TA: "ta-IN",
+        };
+
+        const [frequencyResult, purposeResult] = await Promise.allSettled([
+          translateBatch(
             extracted.prescriptions.map((p) => ({
               frequency: p.frequency ?? "",
               instructions: p.instructions ?? "",
             }))
-          );
-          extracted.prescriptions = extracted.prescriptions.map((p, i) => {
-            const perLang = translated[i];
-            const translations: NonNullable<
-              ExtractedPrescription["translations"]
-            > = { "en-SG": null, "cmn-Hans-CN": null, "ms-MY": null, "ta-IN": null };
-            for (const lang of NON_ENGLISH_LANGUAGES) {
-              const fields = perLang[lang];
-              if (!fields) continue;
-              translations[lang] = {
-                // Only surface a translation for fields that had source text.
-                frequency: p.frequency ? fields.frequency : null,
-                instructions: p.instructions ? fields.instructions : null,
-              };
-            }
-            return { ...p, translations };
-          });
-        } catch (translateError) {
+          ),
+          translatePurposes(extracted.prescriptions.map((p) => p.purpose)),
+        ]);
+
+        if (frequencyResult.status === "rejected") {
           console.error(
-            "[process-document] Prescription translation failed (non-fatal):",
-            translateError
+            "[process-document] Prescription frequency/instructions translation failed (non-fatal):",
+            frequencyResult.reason
           );
         }
+        if (purposeResult.status === "rejected") {
+          console.error(
+            "[process-document] Prescription purpose translation failed (non-fatal):",
+            purposeResult.reason
+          );
+        }
+
+        const translated = frequencyResult.status === "fulfilled" ? frequencyResult.value : null;
+        const purposeByLang = purposeResult.status === "fulfilled" ? purposeResult.value : null;
+
+        extracted.prescriptions = extracted.prescriptions.map((p, i) => {
+          const perLang = translated?.[i];
+          const translations: NonNullable<
+            ExtractedPrescription["translations"]
+          > = { "en-SG": null, "cmn-Hans-CN": null, "ms-MY": null, "ta-IN": null };
+
+          for (const lang of NON_ENGLISH_LANGUAGES) {
+            const fields = perLang?.[lang];
+            translations[lang] = {
+              // Only surface a translation for fields that had source text.
+              frequency: fields && p.frequency ? fields.frequency : null,
+              instructions: fields && p.instructions ? fields.instructions : null,
+              purpose: null,
+            };
+          }
+          for (const [deeplLang, supportedLang] of Object.entries(DEEPL_TO_SUPPORTED) as [DeepLLang, "cmn-Hans-CN" | "ms-MY" | "ta-IN"][]) {
+            const purpose = purposeByLang?.[deeplLang][i] ?? null;
+            translations[supportedLang] = { ...translations[supportedLang]!, purpose };
+          }
+
+          return { ...p, translations };
+        });
       }
 
       // Step 1.5: Persist the file + extraction to Supabase — non-fatal on failure,

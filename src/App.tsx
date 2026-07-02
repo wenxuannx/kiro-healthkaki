@@ -43,9 +43,9 @@ import HelpScreen        from './screens/Help'
 import SettingsScreen    from './screens/Settings'
 import ErrorScreen       from './screens/ErrorScreen'
 
-import type { Screen, SubsidyCard, ProcessDocumentResponse } from './types'
+import type { DocumentTypeId, Screen, SubsidyCard, ProcessDocumentResponse } from './types'
 
-const SHOW_NAV: Screen[] = ['home', 'help', 'settings']
+const SHOW_NAV: Screen[] = ['home', 'help', 'settings', 'results']
 
 const SCREEN_ORDER: Screen[] = [
   'home', 'camera', 'confirm', 'processing', 'results', 'bill', 'medications', 'details',
@@ -77,6 +77,10 @@ function AppInner() {
   const [selectedSubsidy, setSubsidy] = useState<SubsidyCard | null>(null)
   const [apiResult, setApiResult]     = useState<ProcessDocumentResponse | null>(null)
   const [processingError, setProcessingError] = useState<ProcessingFailure | null>(null)
+  // Category picked via a Home-screen chip (e.g. "Prescription Slip"), carried
+  // through to Confirm as the pre-selected document category so users don't
+  // have to wait for auto-detect when they already told us what it is.
+  const [pickedCategory, setPickedCategory] = useState<DocumentTypeId | null>(null)
   const activeRequest = useRef<AbortController | null>(null)
   const requestSequence = useRef(0)
   const { language } = useLang()
@@ -106,7 +110,7 @@ function AppInner() {
 
   useEffect(() => { setBirthdateState(getBirthdateCookie()) }, [])
 
-  const runFetch = useCallback((selected: File, birthYear: number) => {
+  const runFetch = useCallback((selected: File, birthYear?: number) => {
     activeRequest.current?.abort()
     const controller = new AbortController()
     const requestId = ++requestSequence.current
@@ -114,7 +118,7 @@ function AppInner() {
 
     const formData = new FormData()
     formData.append('file', selected)
-    formData.append('birthYear', String(birthYear))
+    if (birthYear !== undefined) formData.append('birthYear', String(birthYear))
 
     const timeout = window.setTimeout(() => controller.abort(), DOCUMENT_TIMEOUT_MS)
 
@@ -180,6 +184,9 @@ function AppInner() {
   // If a birthdate is already on file (returning session), the fetch kicks
   // off right away so auto-detect is ready by the time Confirm renders —
   // otherwise it waits for the inline birthdate field on Confirm to fire it.
+  // Prescription slips are the one document type that never surfaces
+  // age-gated subsidy schemes, so a chip-picked prescription scan can start
+  // processing without a birthdate at all.
   const processFile = useCallback((selected: File) => {
     activeRequest.current?.abort()
     setFile(selected)
@@ -189,8 +196,10 @@ function AppInner() {
 
     if (birthdate) {
       runFetch(selected, birthYearFromIsoDate(birthdate))
+    } else if (pickedCategory === 'prescription') {
+      runFetch(selected)
     }
-  }, [birthdate, runFetch])
+  }, [birthdate, pickedCategory, runFetch])
 
   // Shared by the inline Confirm-screen field and the Settings "Edit" modal.
   // Saves the cookie, then — if a file is waiting on a birthdate — fires the
@@ -216,9 +225,9 @@ function AppInner() {
 
   const renderScreen = () => {
     switch (screen) {
-      case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
+      case 'home':        return <HomeScreen onNavigate={navigate} onFileReady={processFile} onSelectCategory={setPickedCategory} />
       case 'camera':      return <CameraScreen onNavigate={navigate} onFileReady={processFile} />
-      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} birthdate={birthdate} onBirthdateChange={handleBirthdateChange} />
+      case 'confirm':     return <ConfirmScreen onNavigate={navigate} file={file} onFileReady={processFile} result={apiResult} scanError={processingError !== null} birthdate={birthdate} onBirthdateChange={handleBirthdateChange} pickedCategory={pickedCategory} />
       case 'processing':  return <ProcessingScreen onNavigate={navigate} result={apiResult} scanError={processingError !== null} />
       case 'results':     return <ResultsScreen onNavigate={navigate} onSelectSubsidy={setSubsidy} apiResult={apiResult} />
       case 'bill':        return <BillScreen onNavigate={navigate} bill={apiResult?.extracted.bill ?? null} institution={apiResult?.extracted.institution ?? null} visitDate={apiResult?.extracted.visitDate ?? null} />

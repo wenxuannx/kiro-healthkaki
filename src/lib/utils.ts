@@ -106,7 +106,7 @@ export const MOCK_RESULT: ScanResult = {
   id: 'scan_001',
   date: '15 Jan 2025',
   time: '2:30 PM',
-  documentType: 'Polyclinic Invoice',
+  documentType: 'Clinic Bill',
   clinicName: 'Toa Payoh Polyclinic',
   totalBill: 120,
   totalSaved: 91,
@@ -182,8 +182,8 @@ export const MOCK_RESULT: ScanResult = {
 }
 
 export const MOCK_HISTORY: HistoryItem[] = [
-  { id: 'h1', date: '15 Jan 2025', time: '2:30 PM', clinicName: 'Toa Payoh Polyclinic',   outOfPocket: 0,  totalSaved: 91,  documentType: 'Polyclinic Invoice' },
+  { id: 'h1', date: '15 Jan 2025', time: '2:30 PM', clinicName: 'Toa Payoh Polyclinic',   outOfPocket: 0,  totalSaved: 91,  documentType: 'Clinic Bill' },
   { id: 'h2', date: '14 Jan 2025', time: '3:15 PM', clinicName: 'Ang Mo Kio Polyclinic',  outOfPocket: 0,  totalSaved: 65,  documentType: 'Prescription Slip' },
   { id: 'h3', date: '28 Nov 2024', time: '10:15 AM', clinicName: 'SGH Specialist Clinic', outOfPocket: 15, totalSaved: 126, documentType: 'Referral Letter' },
-  { id: 'h4', date: '5 Oct 2024',  time: '4:00 PM', clinicName: 'CHAS GP Clinic',         outOfPocket: 5,  totalSaved: 43,  documentType: 'Diagnosis Letter' },
+  { id: 'h4', date: '5 Oct 2024',  time: '4:00 PM', clinicName: 'CHAS GP Clinic',         outOfPocket: 5,  totalSaved: 43,  documentType: 'Clinic Bill' },
 ]

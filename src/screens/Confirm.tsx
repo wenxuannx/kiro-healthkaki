@@ -14,6 +14,9 @@ interface Props {
   scanError: boolean
   birthdate: string | null
   onBirthdateChange: (isoDate: string) => void
+  // Category the user already picked via a Home-screen chip, if any —
+  // pre-selects the category below instead of waiting for auto-detect.
+  pickedCategory?: DocumentTypeId | null
 }
 
 // Metadata for each classifiable document type — used both for the auto-detected
@@ -21,10 +24,7 @@ interface Props {
 const DOC_TYPE_DEFS: { id: DocumentTypeId; icon: string; badge: 'orange' | 'teal' | 'navy' | 'gray'; timingKey: string; timingColor: string; labelKey: string }[] = [
   { id: 'invoice',      icon: '🧾', badge: 'orange', timingKey: 'timing_after',  timingColor: 'text-orange-500',  labelKey: 'dt_invoice' },
   { id: 'referral',     icon: '📋', badge: 'teal',   timingKey: 'timing_before', timingColor: 'text-teal-600',    labelKey: 'dt_referral' },
-  { id: 'diagnosis',    icon: '🩺', badge: 'teal',   timingKey: 'timing_before', timingColor: 'text-teal-600',    labelKey: 'dt_diagnosis' },
   { id: 'prescription', icon: '💊', badge: 'navy',   timingKey: 'timing_both',   timingColor: 'text-navy-500',    labelKey: 'dt_prescription' },
-  { id: 'followup',     icon: '📄', badge: 'gray',   timingKey: 'timing_during', timingColor: 'text-neutral-500', labelKey: 'dt_followup' },
-  { id: 'specialist',   icon: '📝', badge: 'gray',   timingKey: 'timing_during', timingColor: 'text-neutral-500', labelKey: 'dt_specialist' },
 ]
 
 function ConsentCheckbox({ checked, onToggle, label }: { checked: boolean; onToggle: () => void; label: string }) {
@@ -38,12 +38,12 @@ function ConsentCheckbox({ checked, onToggle, label }: { checked: boolean; onTog
   )
 }
 
-export default function Confirm({ onNavigate, file, onFileReady, result, scanError, birthdate, onBirthdateChange }: Props) {
+export default function Confirm({ onNavigate, file, onFileReady, result, scanError, birthdate, onBirthdateChange, pickedCategory }: Props) {
   const { language } = useLang()
   const t = T[language]
   const [checked1, setChecked1]     = useState(false)
   const [checked2, setChecked2]     = useState(false)
-  const [manualOverride, setManualOverride] = useState<DocumentTypeId | null>(null)
+  const [manualOverride, setManualOverride] = useState<DocumentTypeId | null>(pickedCategory ?? null)
   const [showPicker, setShowPicker] = useState(false)
   const [previewUrl, setPreviewUrl] = useState<string | null>(() => file && file.type !== 'application/pdf' ? URL.createObjectURL(file) : null)
   const fileInput                   = useRef<HTMLInputElement>(null)
@@ -53,6 +53,7 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
   const detectedId = manualOverride ?? result?.extracted.documentType ?? null
   const docType = useMemo(() => DOC_TYPE_DEFS.find(d => d.id === detectedId) ?? null, [detectedId])
   const stillDetecting = !result && !scanError
+  const skipBirthdate = docType?.id === 'prescription'
 
   useEffect(() => {
     return () => { if (previewUrl) URL.revokeObjectURL(previewUrl) }
@@ -118,7 +119,6 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
               <p className="text-base font-bold text-neutral-900">
                 {docType ? t[docType.labelKey as keyof typeof t] : (stillDetecting ? 'Detecting category…' : 'Select a category')}
               </p>
-              {docType && <p className={`text-sm font-semibold ${docType.timingColor} mt-0.5`}>{t[docType.timingKey as keyof typeof t]}</p>}
             </div>
             <div className="flex items-center gap-1.5 text-sm font-semibold text-neutral-600 bg-neutral-100 border border-neutral-200 rounded-full px-3 py-1.5">
               <Tag className="w-3.5 h-3.5" />
@@ -146,7 +146,6 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
                       <span className="text-xl flex-shrink-0">{dt.icon}</span>
                       <div className="flex-1">
                         <p className="text-sm font-semibold text-neutral-900">{t[dt.labelKey as keyof typeof t]}</p>
-                        <p className={`text-xs font-medium ${dt.timingColor} mt-0.5`}>{t[dt.timingKey as keyof typeof t]}</p>
                       </div>
                       {docType?.id === dt.id && (
                         <div className="w-5 h-5 rounded-full bg-teal-700 flex items-center justify-center flex-shrink-0">
@@ -161,26 +160,30 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
           </AnimatePresence>
         </div>
 
-        {/* Birthdate — used to match age-gated subsidy schemes; editable at any time */}
-        <div>
-          <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">Birthdate</p>
-          <div className="w-full bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-3 shadow-card">
-            <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
-              <Calendar className="w-5 h-5 text-teal-700" />
+        {/* Birthdate — used to match age-gated subsidy schemes; editable at any time.
+            Prescription slips never surface those schemes, so this is skipped for them. */}
+        {!skipBirthdate && (
+          <div>
+            <p className="text-xs font-bold text-neutral-400 uppercase tracking-widest mb-2">Birthdate</p>
+            <div className="w-full bg-white border border-neutral-200 rounded-xl p-4 flex items-center gap-3 shadow-card">
+              <div className="w-11 h-11 rounded-xl bg-teal-50 flex items-center justify-center flex-shrink-0">
+                <Calendar className="w-5 h-5 text-teal-700" />
+              </div>
+              <input
+                type="date"
+                value={birthdate ?? ''}
+                max={today}
+                onChange={e => e.target.value && onBirthdateChange(e.target.value)}
+                className="flex-1 text-base font-semibold text-neutral-900 outline-none bg-transparent"
+                aria-label="Birthdate"
+              />
             </div>
-            <input
-              type="date"
-              value={birthdate ?? ''}
-              max={today}
-              onChange={e => e.target.value && onBirthdateChange(e.target.value)}
-              className="flex-1 text-base font-semibold text-neutral-900 outline-none bg-transparent"
-              aria-label="Birthdate"
-            />
           </div>
-        </div>
+        )}
 
-        {/* Before-visit callout when relevant */}
-        {docType && (docType.id === 'referral' || docType.id === 'diagnosis' || docType.id === 'prescription') && (
+        {/* Before-visit callout when relevant — omitted for prescription slips
+            since they never surface subsidy/CDMP matching. */}
+        {docType && docType.id === 'referral' && (
           <motion.div
             initial={{ opacity: 0, y: 8 }}
             animate={{ opacity: 1, y: 0 }}
@@ -189,13 +192,7 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
             <span className="text-xl flex-shrink-0">💡</span>
             <div>
               <p className="text-sm font-bold text-teal-700 mb-1">{t.early_scan_title}</p>
-              <p className="text-sm text-teal-600 leading-relaxed">
-                {docType.id === 'referral'
-                  ? t.early_scan_referral
-                  : docType.id === 'diagnosis'
-                  ? t.early_scan_diagnosis
-                  : t.early_scan_prescription}
-              </p>
+              <p className="text-sm text-teal-600 leading-relaxed">{t.early_scan_referral}</p>
             </div>
           </motion.div>
         )}
@@ -218,8 +215,8 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
         </Card>
 
         <AnimatePresence>
-          <motion.div animate={{ opacity: bothChecked && birthdate ? 1 : 0.5 }} transition={{ duration: 0.2 }}>
-            <Button variant="primary" size="lg" fullWidth disabled={!bothChecked || !birthdate}
+          <motion.div animate={{ opacity: bothChecked && (birthdate || skipBirthdate) ? 1 : 0.5 }} transition={{ duration: 0.2 }}>
+            <Button variant="primary" size="lg" fullWidth disabled={!bothChecked || (!birthdate && !skipBirthdate)}
               onClick={() => onNavigate('processing')} className="gap-2">
               {t.process_btn}
               <ChevronRight className="w-5 h-5" />
@@ -227,7 +224,7 @@ export default function Confirm({ onNavigate, file, onFileReady, result, scanErr
           </motion.div>
         </AnimatePresence>
 
-        {!birthdate ? (
+        {!birthdate && !skipBirthdate ? (
           <p className="text-sm text-neutral-400 text-center -mt-1">Please enter your birthdate to continue.</p>
         ) : !bothChecked && (
           <p className="text-sm text-neutral-400 text-center -mt-1">{t.tick_both}</p>

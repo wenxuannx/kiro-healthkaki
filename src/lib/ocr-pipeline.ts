@@ -19,7 +19,7 @@ import { redactExtractedData } from "@/lib/nric-redactor";
 import { geminiModel } from "@/services/gemini";
 import { extractMedicationInfo } from "@/lib/medication-ocr";
 
-const DOCUMENT_TYPES: DocumentTypeId[] = ["invoice", "referral", "diagnosis", "prescription", "followup", "specialist"];
+const DOCUMENT_TYPES: DocumentTypeId[] = ["invoice", "referral", "prescription"];
 
 // Gemini sometimes returns a synonym or human-readable label instead of the
 // exact enum string despite prompt instructions — normalize common variants
@@ -32,19 +32,9 @@ const DOCUMENT_TYPE_SYNONYMS: Record<string, DocumentTypeId> = {
   invoice: "invoice",
   bill: "invoice",
   receipt: "invoice",
-  diagnosis: "diagnosis",
-  "diagnosis letter": "diagnosis",
-  "chronic condition letter": "diagnosis",
   prescription: "prescription",
   "prescription slip": "prescription",
   "medication slip": "prescription",
-  followup: "followup",
-  "follow-up": "followup",
-  "follow-up letter": "followup",
-  "follow up letter": "followup",
-  specialist: "specialist",
-  "specialist memo": "specialist",
-  "specialist consultation": "specialist",
 };
 
 function normalizeDocumentType(value: unknown): DocumentTypeId | null {
@@ -63,10 +53,15 @@ Return ONLY a JSON array. Each item must have this shape:
   "medicationName": "printed name",
   "dosage": "printed strength or dose, or null",
   "frequency": "printed frequency, or null",
-  "instructions": "other printed directions, or null"
+  "instructions": "other printed directions, or null",
+  "purpose": "plain-language explanation of what this medication is for, or null"
 }
 
-Medication names may be brand or generic names. A strength such as "500 mg" belongs in dosage. Directions such as "take one tablet twice daily after food" should be split between frequency and instructions when possible.
+Medication names may be brand or generic names. A strength such as "500 mg" belongs in dosage — including when it appears inside a longer printed item description (e.g. "AUGMENTIN 625MG TABLET" → medicationName "Augmentin", dosage "625mg"), not left stuck inside medicationName. Directions such as "take one tablet twice daily after food" should be split between frequency and instructions when possible.
+
+purpose is almost never printed on the document — infer it from your own medical knowledge of the drug (generic or brand name), in one short plain-English phrase suitable for an elderly patient (e.g. "Antibiotic for bacterial infection", "Lowers blood pressure", "Relieves pain and fever"). Only use null if you cannot identify the medication well enough to know what it treats.
+
+On a bill/invoice, an "Item Name" / "Quantity" / "UOM" table lists what was dispensed, not how to take it — the Quantity/UOM columns (e.g. "14 Tablet") are the count sold, NOT the dosage or frequency. Never put a dispensed quantity into dosage or frequency. Bills typically print no dosing schedule at all; leave frequency and instructions null rather than guessing when the document has no such directions printed.
 
 Do not infer or invent medication details. Do not return diagnoses, procedures, or allergies as medications. Return [] only when the document contains no prescription or medication-order entries.`;
 
@@ -78,18 +73,27 @@ Analyse the provided medical document image and extract the following informatio
 3. Date of visit (in YYYY-MM-DD format if identifiable)
 4. Healthcare institution name
 5. Full text content of the document
-6. Prescription medications, including the printed medication name, dosage, frequency, and instructions
+6. Prescription medications, including the printed medication name, dosage, frequency, and instructions.
+   A strength printed inside a longer item description (e.g. "AUGMENTIN 625MG TABLET" on a bill line
+   item) belongs in dosage, not medicationName — split it out. On a bill, the Quantity/UOM columns
+   (e.g. "14 Tablet") are the count dispensed, NOT a dosage or frequency; never put them there. Bills
+   rarely print a dosing schedule — leave frequency/instructions null rather than guessing one.
+   Also include a "purpose": a one-phrase plain-English explanation of what each medication is for,
+   inferred from your own medical knowledge of the drug (it is almost never printed on the document
+   itself) — e.g. "Antibiotic for bacterial infection", "Lowers blood pressure". Use null only if you
+   cannot identify the medication well enough to know what it treats.
 7. Printed bill total and line items, if this is a bill or invoice
 8. Subsidy or payer claims itemised on the bill as a deduction from the total — lines such as
    "Claim from CHAS", "MediSave claim", "Claim from Medifund", "MediShield Life". Return only the
    payer/scheme name (e.g. "CHAS", "MediSave"), not the amount.
+8b. The amount actually owed by the patient after any subsidy/insurance deductions, if printed —
+    look for a line such as "Patient Total", "Amount Payable", "Balance Due", or "Nett Payable"
+    that appears after subsidy/claim deduction lines. This is different from the pre-deduction
+    total. Use null if the bill has no subsidy claim lines or this amount isn't printed.
 9. Document type — classify as exactly one of the following lowercase string values (use the value on the left of the colon, not the description):
    - "invoice": a bill, receipt, or itemised charges for services/medication issued after a visit
    - "referral": contains a "Referral To" / "Referral Notes" section directing the patient to another institution, department, or specialist — regardless of the document's title or header
-   - "diagnosis": states a new diagnosis or chronic condition without referring the patient elsewhere
    - "prescription": a prescription or medication dispensing slip listing drug names and dosages
-   - "followup": a follow-up appointment reminder or letter for an existing condition
-   - "specialist": a specialist consultation memo or clinical notes from a specialist visit
    Judge by the document's content and structure, not its printed title. Only use null if none of the above apply after reading the full content.
 
 IMPORTANT:
@@ -109,16 +113,18 @@ Respond with this exact JSON structure:
       "medicationName": "printed medication name",
       "dosage": "printed dosage or null",
       "frequency": "printed frequency or null",
-      "instructions": "other printed directions or null"
+      "instructions": "other printed directions or null",
+      "purpose": "plain-language explanation of what this medication is for, or null"
     }
   ],
   "bill": {
     "currency": "SGD",
     "totalAmount": 120.50,
-    "items": [{ "description": "printed line-item description", "amount": 20.00 }]
+    "items": [{ "description": "printed line-item description", "amount": 20.00 }],
+    "payableAmount": 42.76
   },
   "claimedSubsidies": ["string array of payer/subsidy names itemised as a claim on the bill, e.g. CHAS"],
-  "documentType": "invoice|referral|diagnosis|prescription|followup|specialist or null"
+  "documentType": "invoice|referral|prescription or null"
 }`;
 
 /**
@@ -205,6 +211,7 @@ function parseGeminiResponse(responseText: string): RawExtractedData {
             dosage: optionalText(prescription.dosage),
             frequency: optionalText(prescription.frequency),
             instructions: optionalText(prescription.instructions),
+            purpose: optionalText(prescription.purpose),
           }];
         })
       : [],
@@ -239,8 +246,14 @@ function normalizeBill(value: unknown): RawExtractedData["bill"] {
     return [{ description: description.trim(), amount: amount(row.amount ?? row.price ?? row.total) }];
   }) : [];
   const totalAmount = amount(bill.totalAmount ?? bill.total_amount ?? bill.total);
+  const payableAmount = amount(bill.payableAmount ?? bill.payable_amount ?? bill.patientTotal ?? bill.patient_total);
   if (totalAmount === null && items.length === 0) return null;
-  return { currency: typeof bill.currency === "string" && bill.currency.trim() ? bill.currency.trim() : "SGD", totalAmount, items };
+  return {
+    currency: typeof bill.currency === "string" && bill.currency.trim() ? bill.currency.trim() : "SGD",
+    totalAmount,
+    items,
+    payableAmount,
+  };
 }
 
 function normalizePrescriptions(value: unknown): RawExtractedData["prescriptions"] {
@@ -250,7 +263,7 @@ function normalizePrescriptions(value: unknown): RawExtractedData["prescriptions
   const items = Array.isArray(candidate) ? candidate : [candidate];
   return items.flatMap((item) => {
     if (typeof item === "string" && item.trim()) {
-      return [{ medicationName: item.trim(), dosage: null, frequency: null, instructions: null }];
+      return [{ medicationName: item.trim(), dosage: null, frequency: null, instructions: null, purpose: null }];
     }
     if (!item || typeof item !== "object") return [];
     const prescription = item as Record<string, unknown>;
@@ -262,6 +275,7 @@ function normalizePrescriptions(value: unknown): RawExtractedData["prescriptions
       dosage: optionalText(prescription.dosage ?? prescription.dose ?? prescription.strength),
       frequency: optionalText(prescription.frequency ?? prescription.freq ?? prescription.schedule),
       instructions: optionalText(prescription.instructions ?? prescription.directions ?? prescription.sig ?? prescription.route),
+      purpose: optionalText(prescription.purpose ?? prescription.indication),
     }];
   });
 }
@@ -281,7 +295,8 @@ function extractPrescriptionsFromOcrText(rawText: string): RawExtractedData["pre
       seen.add(key);
       const dosage = line.match(/\b\d+(?:\.\d+)?\s*(?:mg|mcg|µg|g|ml)\b/i)?.[0] ?? null;
       const frequency = line.match(/\b(?:once daily|twice daily|three times daily|four times daily|every \d+ hours|as needed|od|bd|tds|qid|prn|mane|nocte)\b/i)?.[0] ?? null;
-      return [{ medicationName: line, dosage, frequency, instructions: line }];
+      // No LLM pass here (pure regex fallback), so purpose can't be inferred.
+      return [{ medicationName: line, dosage, frequency, instructions: line, purpose: null }];
     })
     .slice(0, 30);
 }
@@ -295,6 +310,7 @@ async function extractSingleMedication(base64Data: string, mimeType: string): Pr
     dosage: null,
     frequency: result.extraction.dosageFrequency?.trim() || null,
     instructions: null,
+    purpose: result.extraction.purpose?.trim() || null,
   }];
 }
 
