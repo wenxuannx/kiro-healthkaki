@@ -3,7 +3,22 @@ import { Upload, WifiOff, FileX, AlertTriangle, RefreshCw, Phone, CheckCircle2 }
 import { Button } from '../components/ui'
 import type { Screen, ErrorType } from '../types'
 
-interface Props { onNavigate: (s: Screen) => void; errorType?: ErrorType; errorMessage?: string | null }
+type FailedProcessingStage = 'uploading' | 'reading' | 'finding'
+
+interface Props {
+  onNavigate: (s: Screen) => void
+  errorType?: ErrorType
+  errorMessage?: string | null
+  errorStage?: FailedProcessingStage
+  timedOut?: boolean
+  onRetry?: () => void
+}
+
+const STAGE_LABELS: Record<FailedProcessingStage, string> = {
+  uploading: 'Uploading your document',
+  reading: 'Reading your document',
+  finding: 'Finding your subsidies',
+}
 
 const ERRORS: Record<ErrorType, {
   icon: React.ElementType; iconBg: string; iconColor: string
@@ -50,7 +65,7 @@ const ERRORS: Record<ErrorType, {
   },
 }
 
-export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMessage }: Props) {
+export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMessage, errorStage, timedOut = false, onRetry }: Props) {
   const e = ERRORS[errorType]
   const IconComponent = e.icon
 
@@ -78,7 +93,14 @@ export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMes
           </div>
         )}
 
-        <h1 className="text-2xl font-bold text-neutral-900 mb-3 leading-snug">{e.title}</h1>
+        {errorStage && (
+          <p className="text-sm font-semibold text-orange-600 mb-3">
+            Error during: {STAGE_LABELS[errorStage]}
+          </p>
+        )}
+        <h1 className="text-2xl font-bold text-neutral-900 mb-3 leading-snug">
+          {timedOut ? 'Processing timed out' : e.title}
+        </h1>
         <p className="text-base text-neutral-500 leading-relaxed mb-4">{errorMessage || e.body}</p>
         {errorMessage && errorMessage !== e.body && (
           <p className="text-sm text-neutral-400 leading-relaxed mb-9">{e.body}</p>
@@ -87,7 +109,7 @@ export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMes
 
         {/* Actions */}
         <div className="flex flex-col gap-3 w-full">
-          <Button variant="primary" size="lg" fullWidth onClick={() => onNavigate(e.primary.to)} className="gap-2">
+          <Button variant="primary" size="lg" fullWidth onClick={onRetry ?? (() => onNavigate(e.primary.to))} className="gap-2">
             <e.primary.icon className="w-5 h-5" />
             {e.primary.label}
           </Button>

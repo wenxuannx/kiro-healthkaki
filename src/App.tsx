@@ -1,4 +1,4 @@
-import { useState, useCallback, createContext, useContext } from 'react'
+import { useState, useCallback, createContext, useContext, useEffect, useRef } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
 import { Home as HomeIcon, HelpCircle, Settings as SettingsIcon } from 'lucide-react'
 
@@ -54,13 +54,25 @@ const pageVariants = {
   exit:    (dir: number) => ({ opacity: 0, x: dir >= 0 ? -32 : 32, transition: { duration: 0.25, ease } }),
 }
 
+type FailedProcessingStage = 'uploading' | 'reading' | 'finding'
+
+interface ProcessingFailure {
+  message: string
+  stage: FailedProcessingStage
+  timedOut: boolean
+}
+
+const DOCUMENT_TIMEOUT_MS = 30_000
+
 function AppInner() {
   const [screen, setScreen]           = useState<Screen>('home')
   const [prevScreen, setPrev]         = useState<Screen>('home')
   const [file, setFile]               = useState<File | null>(null)
   const [selectedSubsidy, setSubsidy] = useState<SubsidyCard | null>(null)
   const [apiResult, setApiResult]     = useState<ProcessDocumentResponse | null>(null)
-  const [processingError, setProcessingError] = useState<string | null>(null)
+  const [processingError, setProcessingError] = useState<ProcessingFailure | null>(null)
+  const activeRequest = useRef<AbortController | null>(null)
+  const requestSequence = useRef(0)
   const { language } = useLang()
   const t = T[language]
 
@@ -80,7 +92,14 @@ function AppInner() {
 
   // Kicks off the Gemini extraction + subsidy lookup as soon as a file is picked,
   // so the auto-detected document type is ready by the time the user reaches Confirm.
+  useEffect(() => () => activeRequest.current?.abort(), [])
+
   const processFile = useCallback((selected: File) => {
+    activeRequest.current?.abort()
+    const controller = new AbortController()
+    const requestId = ++requestSequence.current
+    activeRequest.current = controller
+
     setFile(selected)
     setApiResult(null)
     setProcessingError(null)
@@ -89,17 +108,74 @@ function AppInner() {
     const formData = new FormData()
     formData.append('file', selected)
 
-    fetch('/api/process-document', { method: 'POST', body: formData })
+    const timeout = window.setTimeout(() => controller.abort(), DOCUMENT_TIMEOUT_MS)
+
+    fetch('/api/process-document', {
+      method: 'POST',
+      body: formData,
+      signal: controller.signal,
+    })
       .then(async res => {
         if (!res.ok) {
           const body = await res.json().catch(() => ({}))
-          throw new Error(body.error ?? 'Processing failed')
+          const error = new Error(body.error ?? 'Processing failed') as Error & {
+            stage?: FailedProcessingStage
+          }
+          error.stage = res.status === 400 ? 'uploading' : 'reading'
+          throw error
         }
         return res.json() as Promise<ProcessDocumentResponse>
       })
-      .then(setApiResult)
-      .catch((err: unknown) => setProcessingError(err instanceof Error ? err.message : 'Processing failed'))
+      .then(result => {
+        if (requestId !== requestSequence.current) return
+
+        if (result.message && /subsidy lookup.*unavailable/i.test(result.message)) {
+          setProcessingError({
+            message: `${result.message} Please try again.`,
+            stage: 'finding',
+            timedOut: false,
+          })
+          return
+        }
+
+        setApiResult(result)
+      })
+      .catch((error: unknown) => {
+        if (requestId !== requestSequence.current) return
+
+        const timedOut = controller.signal.aborted
+        const failedStage =
+          error instanceof Error && 'stage' in error
+            ? (error as Error & { stage: FailedProcessingStage }).stage
+            : timedOut
+              ? 'reading'
+              : 'uploading'
+
+        setProcessingError({
+          message: timedOut
+            ? 'Processing timed out after 30 seconds. Please try again.'
+            : error instanceof Error
+              ? error.message
+              : 'Processing failed. Please try again.',
+          stage: failedStage,
+          timedOut,
+        })
+      })
+      .finally(() => {
+        window.clearTimeout(timeout)
+        if (requestId === requestSequence.current) activeRequest.current = null
+      })
   }, [])
+
+  const retryProcessing = useCallback(() => {
+    if (!file) {
+      navigate('camera')
+      return
+    }
+
+    processFile(file)
+    navigate('processing')
+  }, [file, navigate, processFile])
 
   const renderScreen = () => {
     switch (screen) {
@@ -113,7 +189,7 @@ function AppInner() {
       case 'details':     return <DetailsScreen onNavigate={navigate} subsidy={selectedSubsidy} />
       case 'help':        return <HelpScreen onNavigate={navigate} />
       case 'settings':    return <SettingsScreen onNavigate={navigate} />
-      case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" errorMessage={processingError} />
+      case 'error':       return <ErrorScreen onNavigate={navigate} errorType="processing" errorMessage={processingError?.message} errorStage={processingError?.stage} timedOut={processingError?.timedOut} onRetry={retryProcessing} />
       default:            return <HomeScreen onNavigate={navigate} onFileReady={processFile} />
     }
   }
