@@ -43,10 +43,10 @@ function pickVoice(
  *   - If the device has a voice for the language (English, Chinese on most
  *     machines), use the free, instant, reliable Web Speech API.
  *   - Otherwise (Malay, Tamil on most devices) fall back to the server
- *     `/api/tts` route (Gemini TTS).
+ *     `/api/tts` route (Google Cloud TTS).
  *
- * This keeps the common case fast and free, only spending the limited Gemini
- * TTS quota on languages the device can't handle. Failures are surfaced via the
+ * This keeps the common case fast and free, only spending Cloud TTS quota
+ * on languages the device can't handle. Failures are surfaced via the
  * `error` flag (soft, no thrown errors) so the UI can show a gentle note.
  */
 export function useTTS(language: Language = 'en') {
@@ -147,7 +147,7 @@ export function useTTS(language: Language = 'en') {
         return
       }
 
-      // Path 2: no device voice → server TTS (Gemini) for Malay/Tamil.
+      // Path 2: no device voice → server TTS (Google Cloud TTS) for Malay/Tamil.
       setLoading(true)
       setSpeaking(true)
       try {
@@ -159,7 +159,7 @@ export function useTTS(language: Language = 'en') {
           const res = await fetch('/api/tts', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text, slow }),
+            body: JSON.stringify({ text, slow, language }),
           })
           if (!res.ok) throw new Error(`TTS request failed: ${res.status}`)
           const blob = await res.blob()

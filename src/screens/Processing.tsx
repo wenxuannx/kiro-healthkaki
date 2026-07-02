@@ -72,6 +72,7 @@ export default function Processing({ onNavigate, result, scanError }: Props) {
             strokeWidth="10"
             strokeLinecap="round"
             strokeDasharray={circ}
+            initial={{ strokeDashoffset: circ }}
             animate={{ strokeDashoffset: circ - (pct / 100) * circ }}
             transition={{ duration: 0.8, ease: 'easeOut' }}
           />

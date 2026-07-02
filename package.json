@@ -10,6 +10,7 @@
     "translate": "tsx scripts/translate.ts"
   },
   "dependencies": {
+    "@google-cloud/text-to-speech": "^6.4.1",
     "@google/generative-ai": "^0.24.1",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.108.2",
