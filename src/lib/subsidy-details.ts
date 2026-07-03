@@ -16,33 +16,24 @@ export interface SubsidyDetail {
 
 type LocalizedDetail = Record<Language, SubsidyDetail>;
 
-// Pioneer Generation's MediShield Life premium subsidy rises with age
-// ("age next birthday" bands per MOH Table E). Merdeka's rises from 5% to
-// 10% once a member turns 76. Both packages also pay an age-banded MediSave
-// top-up (Pioneer only). These are the only two schemes whose real-world
+// Pioneer Generation's MediShield Life premium subsidy is 50% of the annual
+// premium, fully covered (100%) for members born on or before 1934 — kept in
+// sync with the age_bonus_tiers on the medishield_life row (migration 004).
+// Merdeka's rises from 5% to 10% once a member turns 76. Pioneer also pays an
+// age-banded MediSave top-up. These are the only two schemes whose real-world
 // benefit amount actually changes with birth year, so their detail is
 // computed rather than static.
 function pioneerDetail(birthYear: number | undefined): LocalizedDetail {
-  const currentYear = new Date().getFullYear();
-  const age = birthYear !== undefined ? currentYear - birthYear : undefined;
+  const isFullyCovered = birthYear !== undefined && birthYear <= 1934;
 
-  const medishieldSubsidy =
-    age === undefined
-      ? "40%–60%"
-      : age <= 70
-        ? "40%"
-        : age <= 80
-          ? "44%–54%"
-          : age <= 90
-            ? "54%–59%"
-            : "60%";
+  const medishieldSubsidy = isFullyCovered ? "100%" : "50%";
   const medishieldSubsidyQualifier =
-    age === undefined
+    birthYear === undefined
       ? {
-          en: ", depending on your age",
-          zh: "，具体取决于您的年龄",
-          ms: ", bergantung kepada umur anda",
-          ta: ", உங்கள் வயதைப் பொறுத்து",
+          en: " (fully covered if you were born on or before 1934)",
+          zh: "（1934年或之前出生者可获全额补贴）",
+          ms: " (dilindungi sepenuhnya jika anda dilahirkan pada atau sebelum 1934)",
+          ta: " (1934 அல்லது அதற்கு முன் பிறந்தவர்களுக்கு முழுவதுமாக ஈடுசெய்யப்படும்)",
         }
       : { en: "", zh: "", ms: "", ta: "" };
 
@@ -134,45 +125,148 @@ function merdekaDetail(birthYear: number | undefined): LocalizedDetail {
   return {
     en: {
       benefits: [
-        `MediShield Life premium subsidy of ${medishieldSubsidy} of your annual premium${medishieldSubsidyQualifier.en}`,
-        "An extra 25% off your remaining bill for subsidised services and medications at polyclinics and public Specialist Outpatient Clinics",
-        "Higher CHAS-equivalent subsidies at participating GP and dental clinics (up to $23.50 for common illnesses, $85–$130 for chronic conditions)",
-        "$2 fixed screening fee under Healthier SG if you're not yet enrolled",
+        "Flat-rate CHAS GP subsidies, independent of your household income — up to $23.50 per visit for common illnesses like cough or flu, up to $85.00 per visit for a simple chronic condition (capped at $340 a year), and up to $130.00 per visit for a complex chronic condition (capped at $520 a year)",
+        "Dental treatment subsidies from $16.00 to $620.00 per procedure at participating CHAS dental clinics",
+        "The Merdeka Bonus: after standard government subsidies are applied at a public hospital Specialist Outpatient Clinic or polyclinic, an additional 25% off whatever bill remains for subsidised services and prescribed medications",
+        "Flexi-MediSave: withdraw up to $400 a year from your MediSave account for outpatient consultations, lab tests, or medications at public specialist clinics, polyclinics, and CHAS GP clinics — no chronic condition diagnosis required",
+        `MediShield Life premium subsidy of an extra ${medishieldSubsidy} of your annual premium${medishieldSubsidyQualifier.en}`,
       ],
       howToUse:
-        "Present your NRIC at a CHAS clinic, polyclinic, or public hospital — the subsidy is deducted from your bill automatically. No separate application is required.",
+        "Present your Merdeka Generation card or NRIC at a CHAS clinic, polyclinic, or public hospital — the flat-rate subsidy and Merdeka Bonus are applied automatically at the point of payment. For Flexi-MediSave, just ask the clinic counter to charge your visit to MediSave. No application is needed.",
     },
     zh: {
       benefits: [
-        `您的终身健保（MediShield Life）年度保费可获${medishieldSubsidy}补贴${medishieldSubsidyQualifier.zh}`,
-        "在综合诊疗所及公立专科门诊，剩余账单的受津贴服务与药物再享额外25%折扣",
-        "在参与计划的普通科及牙科诊所享有更高的CHAS等值津贴（常见疾病最高$23.50，慢性疾病$85至$130）",
-        "若尚未加入健康SG（Healthier SG）计划，体检费用固定为$2",
+        "固定费率的CHAS普通科津贴，与家庭收入无关——常见疾病（如咳嗽、流感）每次就诊最高补贴$23.50，简单慢性病每次就诊最高补贴$85.00（每年上限$340），复杂慢性病每次就诊最高补贴$130.00（每年上限$520）",
+        "在参与计划的CHAS牙科诊所，牙科治疗津贴介于每项疗程$16.00至$620.00之间",
+        "建国一代花红：在公立医院专科门诊或综合诊疗所享有标准政府津贴后，剩余账单中受津贴服务与处方药物再享额外25%折扣",
+        "灵活保健储蓄（Flexi-MediSave）：每年可从保健储蓄户头提取最高$400，用于公立专科门诊、综合诊疗所及参与计划的CHAS普通科诊所的门诊咨询、化验或药物——无需慢性病诊断",
+        `您的终身健保（MediShield Life）年度保费可再获额外${medishieldSubsidy}补贴${medishieldSubsidyQualifier.zh}`,
       ],
       howToUse:
-        "在CHAS诊所、综合诊疗所或公立医院出示身份证，津贴即会自动从账单中扣除，无需另行申请。",
+        "在CHAS诊所、综合诊疗所或公立医院出示您的建国一代卡或身份证——固定费率津贴与建国一代花红将在付款时自动扣除。如需使用灵活保健储蓄，只需请诊所柜台以保健储蓄为您的诊金扣账。无需另行申请。",
     },
     ms: {
       benefits: [
-        `Subsidi premium MediShield Life sebanyak ${medishieldSubsidy} daripada premium tahunan anda${medishieldSubsidyQualifier.ms}`,
-        "Tambahan 25% diskaun untuk baki bil bagi perkhidmatan dan ubat bersubsidi di poliklinik dan Klinik Pakar Luar (SOC) awam",
-        "Subsidi setaraf CHAS yang lebih tinggi di klinik GP dan pergigian yang mengambil bahagian (sehingga $23.50 untuk penyakit biasa, $85–$130 untuk keadaan kronik)",
-        "Yuran saringan tetap $2 di bawah Healthier SG jika anda belum mendaftar",
+        "Subsidi GP CHAS kadar tetap, tanpa mengira pendapatan isi rumah anda — sehingga $23.50 setiap lawatan untuk penyakit biasa seperti batuk atau selesema, sehingga $85.00 setiap lawatan untuk keadaan kronik ringkas (dihadkan $340 setahun), dan sehingga $130.00 setiap lawatan untuk keadaan kronik kompleks (dihadkan $520 setahun)",
+        "Subsidi rawatan pergigian dari $16.00 hingga $620.00 setiap prosedur di klinik pergigian CHAS yang mengambil bahagian",
+        "Bonus Merdeka: selepas subsidi kerajaan standard dikenakan di Klinik Pakar Luar (SOC) hospital awam atau poliklinik, tambahan 25% diskaun untuk baki bil bagi perkhidmatan bersubsidi dan ubat yang ditetapkan",
+        "Flexi-MediSave: keluarkan sehingga $400 setahun daripada akaun MediSave anda untuk konsultasi pesakit luar, ujian makmal, atau ubat di klinik pakar awam, poliklinik, dan klinik GP CHAS — tiada diagnosis keadaan kronik diperlukan",
+        `Subsidi premium MediShield Life tambahan sebanyak ${medishieldSubsidy} daripada premium tahunan anda${medishieldSubsidyQualifier.ms}`,
       ],
       howToUse:
-        "Tunjukkan NRIC anda di klinik CHAS, poliklinik, atau hospital awam — subsidi akan ditolak daripada bil anda secara automatik. Tiada permohonan berasingan diperlukan.",
+        "Tunjukkan kad Generasi Merdeka atau NRIC anda di klinik CHAS, poliklinik, atau hospital awam — subsidi kadar tetap dan Bonus Merdeka akan digunakan secara automatik semasa pembayaran. Untuk Flexi-MediSave, cuma minta kaunter klinik mengenakan lawatan anda kepada MediSave. Tiada permohonan diperlukan.",
     },
     ta: {
       benefits: [
-        `உங்கள் ஆண்டு MediShield Life பிரீமியத்தில் ${medishieldSubsidy} மானியம்${medishieldSubsidyQualifier.ta}`,
-        "பாலிக்ளினிக்குகள் மற்றும் பொது சிறப்பு வெளிநோயாளர் மருத்துவமனைகளில் மானியம் பெறும் சேவைகள் மற்றும் மருந்துகளுக்கான மீதமுள்ள பில்லில் கூடுதலாக 25% தள்ளுபடி",
-        "பங்கேற்கும் GP மற்றும் பல் மருத்துவ கிளினிக்குகளில் அதிக CHAS-சமமான மானியங்கள் (பொதுவான நோய்களுக்கு $23.50 வரை, நீண்டகால நோய்களுக்கு $85–$130)",
-        "Healthier SG-இல் இன்னும் பதிவு செய்யவில்லை என்றால், நிலையான $2 பரிசோதனை கட்டணம்",
+        "உங்கள் குடும்ப வருமானத்தைப் பொருட்படுத்தாத நிலையான-விகித CHAS GP மானியங்கள் — இருமல்/காய்ச்சல் போன்ற பொதுவான நோய்களுக்கு வருகைக்கு $23.50 வரை, எளிய நீண்டகால நோய்க்கு வருகைக்கு $85.00 வரை (ஆண்டுக்கு $340 வரம்பு), மற்றும் சிக்கலான நீண்டகால நோய்க்கு வருகைக்கு $130.00 வரை (ஆண்டுக்கு $520 வரம்பு)",
+        "பங்கேற்கும் CHAS பல் மருத்துவ கிளினிக்குகளில் ஒரு சிகிச்சைக்கு $16.00 முதல் $620.00 வரை பல் மருத்துவ சிகிச்சை மானியங்கள்",
+        "Merdeka போனஸ்: அரசு மருத்துவமனை சிறப்பு வெளிநோயாளர் கிளினிக் அல்லது பாலிக்ளினிக்கில் நிலையான அரசு மானியங்கள் பொருந்திய பிறகு, மானியம் பெறும் சேவைகள் மற்றும் பரிந்துரைக்கப்பட்ட மருந்துகளுக்கான மீதமுள்ள பில்லில் கூடுதலாக 25% தள்ளுபடி",
+        "Flexi-MediSave: பொது சிறப்பு கிளினிக்குகள், பாலிக்ளினிக்குகள் மற்றும் பங்கேற்கும் CHAS GP கிளினிக்குகளில் வெளிநோயாளர் ஆலோசனைகள், ஆய்வக பரிசோதனைகள் அல்லது மருந்துகளுக்கு உங்கள் MediSave கணக்கிலிருந்து ஆண்டுக்கு $400 வரை எடுக்கலாம் — நீண்டகால நோய் கண்டறிதல் தேவையில்லை",
+        `உங்கள் ஆண்டு MediShield Life பிரீமியத்தில் கூடுதலாக ${medishieldSubsidy} மானியம்${medishieldSubsidyQualifier.ta}`,
       ],
       howToUse:
-        "CHAS கிளினிக், பாலிக்ளினிக் அல்லது அரசு மருத்துவமனையில் உங்கள் NRIC-ஐ காட்டவும் — மானியம் தானாகவே உங்கள் பில்லில் இருந்து கழிக்கப்படும். தனியாக விண்ணப்பிக்க தேவையில்லை.",
+        "CHAS கிளினிக், பாலிக்ளினிக் அல்லது அரசு மருத்துவமனையில் உங்கள் Merdeka Generation கார்டு அல்லது NRIC-ஐ காட்டவும் — நிலையான-விகித மானியம் மற்றும் Merdeka போனஸ் கட்டணம் செலுத்தும் போது தானாகவே பயன்படுத்தப்படும். Flexi-MediSave-க்கு, உங்கள் வருகையை MediSave-க்கு கட்டணமாக்கும்படி கிளினிக் கவுண்டரிடம் கேளுங்கள். விண்ணப்பிக்க தேவையில்லை.",
     },
   };
+}
+
+// MediShield Life's own benefits are the same for everyone, but Merdeka
+// Generation members (birth years 1950–1959) additionally receive the 5%
+// (10% from age 76) premium subsidy computed in subsidy-lookup.ts's
+// age_bonus_tiers — surface that here as an extra bullet, mirroring
+// merdekaDetail's own description of the same benefit.
+function medishieldLifeDetail(birthYear: number | undefined): LocalizedDetail {
+  const currentYear = new Date().getFullYear();
+  const age = birthYear !== undefined ? currentYear - birthYear : undefined;
+  const isMerdekaCohort = birthYear !== undefined && birthYear >= 1950 && birthYear <= 1959;
+  const isPioneerCohort = birthYear !== undefined && birthYear <= 1949;
+  const medishieldSubsidy = age !== undefined && age >= 76 ? "10%" : "5%";
+  const pioneerMedishieldSubsidy = birthYear !== undefined && birthYear <= 1934 ? "100%" : "50%";
+
+  const merdekaBonusBullet = {
+    en: `As a Merdeka Generation member, you also receive an extra ${medishieldSubsidy} subsidy on your annual premium (rising to 10% from age 76)`,
+    zh: `作为建国一代成员，您的年度保费还可再获额外${medishieldSubsidy}补贴（76岁起增至10%）`,
+    ms: `Sebagai ahli Generasi Merdeka, anda juga menerima subsidi tambahan ${medishieldSubsidy} untuk premium tahunan anda (meningkat kepada 10% dari umur 76)`,
+    ta: `Merdeka Generation உறுப்பினராக, உங்கள் ஆண்டு பிரீமியத்தில் கூடுதலாக ${medishieldSubsidy} மானியமும் பெறுவீர்கள் (76 வயதிலிருந்து 10% ஆக உயரும்)`,
+  };
+
+  const pioneerBonusBullet = {
+    en:
+      pioneerMedishieldSubsidy === "100%"
+        ? "As a Pioneer Generation member born on or before 1934, your annual premium is fully covered"
+        : "As a Pioneer Generation member, you also receive a 50% subsidy on your annual premium",
+    zh:
+      pioneerMedishieldSubsidy === "100%"
+        ? "作为1934年或之前出生的建国一代成员，您的年度保费已获全额补贴"
+        : "作为建国一代成员，您的年度保费还可再获50%补贴",
+    ms:
+      pioneerMedishieldSubsidy === "100%"
+        ? "Sebagai ahli Generasi Perintis yang dilahirkan pada atau sebelum 1934, premium tahunan anda dilindungi sepenuhnya"
+        : "Sebagai ahli Generasi Perintis, anda juga menerima subsidi 50% untuk premium tahunan anda",
+    ta:
+      pioneerMedishieldSubsidy === "100%"
+        ? "1934 அல்லது அதற்கு முன் பிறந்த Pioneer Generation உறுப்பினராக, உங்கள் ஆண்டு பிரீமியம் முழுவதுமாக ஈடுசெய்யப்படுகிறது"
+        : "Pioneer Generation உறுப்பினராக, உங்கள் ஆண்டு பிரீமியத்தில் 50% மானியமும் பெறுவீர்கள்",
+  };
+
+  const base: LocalizedDetail = {
+    en: {
+      benefits: [
+        "Basic health insurance covering large hospital bills and selected costly outpatient treatments",
+        "Automatic coverage for all Singapore Citizens and Permanent Residents, regardless of pre-existing conditions",
+        "Annual claim limit of $200,000, with no lifetime limit",
+        "Co-insurance (your share of the claimable amount) starts at 10% and decreases as the claimable amount rises",
+        "Premiums are paid automatically from your MediSave account, with larger subsidies for lower- and middle-income households",
+      ],
+      howToUse:
+        "MediShield Life applies automatically at any public hospital or polyclinic — there's nothing to activate. Ask the billing counter how much of your bill MediShield Life has covered.",
+    },
+    zh: {
+      benefits: [
+        "基本医疗保险，涵盖高额住院账单及部分高费用门诊治疗",
+        "所有新加坡公民及永久居民自动获得保障，不论是否有既往病史",
+        "每年索赔限额为$200,000，无终身限额",
+        "共同保险（您需自付的索赔金额比例）从10%起，索赔金额越高，该比例越低",
+        "保费自动从您的保健储蓄户头扣除，中低收入家庭可获更高津贴",
+      ],
+      howToUse:
+        "终身健保（MediShield Life）在任何公立医院或综合诊疗所自动生效——无需另行启用。请向收费柜台查询终身健保已承担您账单的具体金额。",
+    },
+    ms: {
+      benefits: [
+        "Insurans kesihatan asas yang meliputi bil hospital yang besar dan rawatan pesakit luar terpilih yang mahal",
+        "Perlindungan automatik untuk semua Warganegara Singapura dan Penduduk Tetap, tanpa mengira keadaan sedia ada",
+        "Had tuntutan tahunan $200,000, tiada had seumur hidup",
+        "Ko-insurans (bahagian anda daripada jumlah yang boleh dituntut) bermula pada 10% dan berkurangan apabila jumlah yang boleh dituntut meningkat",
+        "Premium dibayar secara automatik daripada akaun MediSave anda, dengan subsidi lebih besar untuk isi rumah berpendapatan rendah dan sederhana",
+      ],
+      howToUse:
+        "MediShield Life terpakai secara automatik di mana-mana hospital atau poliklinik awam — tiada apa yang perlu diaktifkan. Tanya kaunter bil berapa banyak bil anda telah dilindungi oleh MediShield Life.",
+    },
+    ta: {
+      benefits: [
+        "பெரிய மருத்துவமனை பில்கள் மற்றும் தேர்ந்தெடுக்கப்பட்ட அதிக செலவு கொண்ட வெளிநோயாளர் சிகிச்சைகளை உள்ளடக்கிய அடிப்படை சுகாதார காப்பீடு",
+        "முன்பே இருந்த நோய்நிலைகளைப் பொருட்படுத்தாமல் அனைத்து சிங்கப்பூர் குடிமக்கள் மற்றும் நிரந்தர குடியிருப்பாளர்களுக்கும் தானியங்கு பாதுகாப்பு",
+        "ஆண்டு உரிமைகோரல் வரம்பு $200,000, வாழ்நாள் வரம்பு இல்லை",
+        "இணை-காப்பீடு (உரிமைகோரக்கூடிய தொகையில் உங்கள் பங்கு) 10%-இல் தொடங்கி, உரிமைகோரக்கூடிய தொகை அதிகரிக்கும் போது குறையும்",
+        "பிரீமியங்கள் உங்கள் MediSave கணக்கிலிருந்து தானாகவே செலுத்தப்படும், குறைந்த மற்றும் நடுத்தர வருமான குடும்பங்களுக்கு அதிக மானியங்கள்",
+      ],
+      howToUse:
+        "MediShield Life எந்த அரசு மருத்துவமனை அல்லது பாலிக்ளினிக்கிலும் தானாகவே பொருந்தும் — இயக்க எதுவும் தேவையில்லை. உங்கள் பில்லில் MediShield Life எவ்வளவு ஈடுசெய்துள்ளது என்பதை பில்லிங் கவுண்டரிடம் கேளுங்கள்.",
+    },
+  };
+
+  if (isMerdekaCohort) {
+    (Object.keys(base) as Language[]).forEach((lang) => {
+      base[lang].benefits.push(merdekaBonusBullet[lang]);
+    });
+  } else if (isPioneerCohort) {
+    (Object.keys(base) as Language[]).forEach((lang) => {
+      base[lang].benefits.push(pioneerBonusBullet[lang]);
+    });
+  }
+
+  return base;
 }
 
 const STATIC_DETAILS: Record<string, LocalizedDetail> = {
@@ -512,52 +606,6 @@ const STATIC_DETAILS: Record<string, LocalizedDetail> = {
         "உங்களுக்குத் தேவையான குறிப்பிட்ட தடுப்பூசி அல்லது பரிசோதனை MediSave-மூலம் உரிமைகோரக்கூடியதா என உங்கள் கிளினிக் அல்லது பாலிக்ளினிக்கிடம் கேளுங்கள் — தகுதியானவை உங்கள் MediSave கணக்கிலிருந்து தானாகவே கழிக்கப்படும்.",
     },
   },
-  medishield_life: {
-    en: {
-      benefits: [
-        "Basic health insurance covering large hospital bills and selected costly outpatient treatments",
-        "Automatic coverage for all Singapore Citizens and Permanent Residents, regardless of pre-existing conditions",
-        "Annual claim limit of $200,000, with no lifetime limit",
-        "Co-insurance (your share of the claimable amount) starts at 10% and decreases as the claimable amount rises",
-        "Premiums are paid automatically from your MediSave account, with larger subsidies for lower- and middle-income households",
-      ],
-      howToUse:
-        "MediShield Life applies automatically at any public hospital or polyclinic — there's nothing to activate. Ask the billing counter how much of your bill MediShield Life has covered.",
-    },
-    zh: {
-      benefits: [
-        "基本医疗保险，涵盖高额住院账单及部分高费用门诊治疗",
-        "所有新加坡公民及永久居民自动获得保障，不论是否有既往病史",
-        "每年索赔限额为$200,000，无终身限额",
-        "共同保险（您需自付的索赔金额比例）从10%起，索赔金额越高，该比例越低",
-        "保费自动从您的保健储蓄户头扣除，中低收入家庭可获更高津贴",
-      ],
-      howToUse:
-        "终身健保（MediShield Life）在任何公立医院或综合诊疗所自动生效——无需另行启用。请向收费柜台查询终身健保已承担您账单的具体金额。",
-    },
-    ms: {
-      benefits: [
-        "Insurans kesihatan asas yang meliputi bil hospital yang besar dan rawatan pesakit luar terpilih yang mahal",
-        "Perlindungan automatik untuk semua Warganegara Singapura dan Penduduk Tetap, tanpa mengira keadaan sedia ada",
-        "Had tuntutan tahunan $200,000, tiada had seumur hidup",
-        "Ko-insurans (bahagian anda daripada jumlah yang boleh dituntut) bermula pada 10% dan berkurangan apabila jumlah yang boleh dituntut meningkat",
-        "Premium dibayar secara automatik daripada akaun MediSave anda, dengan subsidi lebih besar untuk isi rumah berpendapatan rendah dan sederhana",
-      ],
-      howToUse:
-        "MediShield Life terpakai secara automatik di mana-mana hospital atau poliklinik awam — tiada apa yang perlu diaktifkan. Tanya kaunter bil berapa banyak bil anda telah dilindungi oleh MediShield Life.",
-    },
-    ta: {
-      benefits: [
-        "பெரிய மருத்துவமனை பில்கள் மற்றும் தேர்ந்தெடுக்கப்பட்ட அதிக செலவு கொண்ட வெளிநோயாளர் சிகிச்சைகளை உள்ளடக்கிய அடிப்படை சுகாதார காப்பீடு",
-        "முன்பே இருந்த நோய்நிலைகளைப் பொருட்படுத்தாமல் அனைத்து சிங்கப்பூர் குடிமக்கள் மற்றும் நிரந்தர குடியிருப்பாளர்களுக்கும் தானியங்கு பாதுகாப்பு",
-        "ஆண்டு உரிமைகோரல் வரம்பு $200,000, வாழ்நாள் வரம்பு இல்லை",
-        "இணை-காப்பீடு (உரிமைகோரக்கூடிய தொகையில் உங்கள் பங்கு) 10%-இல் தொடங்கி, உரிமைகோரக்கூடிய தொகை அதிகரிக்கும் போது குறையும்",
-        "பிரீமியங்கள் உங்கள் MediSave கணக்கிலிருந்து தானாகவே செலுத்தப்படும், குறைந்த மற்றும் நடுத்தர வருமான குடும்பங்களுக்கு அதிக மானியங்கள்",
-      ],
-      howToUse:
-        "MediShield Life எந்த அரசு மருத்துவமனை அல்லது பாலிக்ளினிக்கிலும் தானாகவே பொருந்தும் — இயக்க எதுவும் தேவையில்லை. உங்கள் பில்லில் MediShield Life எவ்வளவு ஈடுசெய்துள்ளது என்பதை பில்லிங் கவுண்டரிடம் கேளுங்கள்.",
-    },
-  },
   medifund: {
     en: {
       benefits: [
@@ -612,5 +660,6 @@ export function getSubsidyDetail(
 ): SubsidyDetail | undefined {
   if (schemeId === "pioneer_generation") return pioneerDetail(birthYear)[language];
   if (schemeId === "merdeka_generation") return merdekaDetail(birthYear)[language];
+  if (schemeId === "medishield_life") return medishieldLifeDetail(birthYear)[language];
   return STATIC_DETAILS[schemeId]?.[language];
 }

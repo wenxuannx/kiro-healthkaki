@@ -37,6 +37,11 @@ export interface SubsidyResult {
   // misleading "0%". Null whenever estimatedCoveragePercent or estimatedAmount
   // is meaningful.
   coverageNote: string | null;
+  // Localized copy of coverageNote, keyed by the app's UI language (not
+  // SupportedLanguage — this is UI chrome text, not document-derived
+  // content, so it doesn't need the DB's translation pipeline). Undefined/null
+  // when coverageNote itself is null.
+  coverageNoteTranslations?: Record<Language, string> | null;
   translations: Record<
     SupportedLanguage,
     {
@@ -94,6 +99,55 @@ export interface SubsidyScheme {
   // withdrawal cap (MediSave-CDMP/Flexi-MediSave/outpatient scans). Null when
   // pricing_tiers is null.
   pricing_period: "visit" | "year" | null;
+  // Restricts which clinic types pricing_tiers applies to (e.g. Merdeka
+  // Generation's flat CHAS-style dollar tiers only make sense at a GP visit,
+  // not at a polyclinic/hospital where the benefit is instead a percentage
+  // off — see bonus_percentage). Null means pricing_tiers applies regardless
+  // of clinic type, preserving existing behaviour for CHAS/Flexi-MediSave/
+  // MediSave-CDMP/outpatient scans.
+  pricing_institution_types: string[] | null;
+  // Per-tier annual dollar cap (e.g. Merdeka Generation's $340/year on
+  // chronic_simple, $520/year on chronic_complex), keyed the same way as
+  // pricing_tiers. Informational only — surfaced as a note on the result,
+  // not deducted against actual usage (this app has no visit-history ledger
+  // to track cumulative spend against). Null for schemes with no cap.
+  annual_caps: Record<string, number> | null;
+  // Extra coverage percentage stacked on top of standard subsidies at
+  // specific institution types (Merdeka Generation's "Merdeka Bonus": 25%
+  // off the remaining bill at public institutions only, not at private GP/
+  // dental clinics where the flat pricing_tiers amount applies instead).
+  // Null for schemes with no such bonus.
+  bonus_percentage: number | null;
+  // Which clinic types bonus_percentage applies to. Null when
+  // bonus_percentage is null.
+  bonus_institution_types: string[] | null;
+  // Age-banded coverage percentage stacked on top of coverage_percentage,
+  // evaluated against today's date (like min_age, NOT a birth-year cohort).
+  // Used by MediShield Life's generation-package premium top-ups: Merdeka
+  // Generation members get 5%, rising to 10% from age 76; Pioneer Generation
+  // members get 50%, rising to 100% (fully covered) for those born on or
+  // before 1934. Multiple cohorts can each contribute tiers to the same
+  // scheme — the entry with the highest percentage that the caller satisfies
+  // (age, and cohort_scheme_id/max_birth_year if set) applies. Null for
+  // schemes with no age-banded bonus.
+  age_bonus_tiers:
+    | {
+        min_age: number;
+        percentage: number;
+        // Restricts this tier to callers who also satisfy another scheme's
+        // eligibility gates (e.g. only Merdeka Generation members get the
+        // 5%/10% tiers, only Pioneer Generation members get the 50%/100%
+        // tiers) — the caller must pass that scheme's own birth-year/
+        // citizenship filters, not just be old enough. Null/absent means
+        // this tier applies to anyone who meets min_age, no cohort gate.
+        cohort_scheme_id?: string | null;
+        // Restricts this tier to callers born on or before this year (e.g.
+        // Pioneer Generation's full premium coverage for those born ≤1934) —
+        // a fixed birth-year cutoff, not an age threshold. Null/absent means
+        // no birth-year restriction beyond min_age.
+        max_birth_year?: number | null;
+      }[]
+    | null;
 }
 
 // --- Document Extraction Types ---
