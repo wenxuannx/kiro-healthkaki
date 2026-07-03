@@ -222,6 +222,14 @@ export const T: Record<Language, Record<string, string>> = {
     listen: 'Listen',
     stop: 'Stop',
 
+    // Login
+    login_subtitle: 'Enter your NRIC/FIN and date of birth to continue',
+    login_continue: 'Continue',
+    login_checking: 'Checking…',
+    login_first_time: "First time here? Just enter your details above — we'll set up your account automatically.",
+    login_invalid_nric: 'Please enter a valid NRIC/FIN.',
+    login_generic_error: 'Something went wrong. Please try again.',
+
     acc_details_title: 'Account details',
     nric_fin_label: 'NRIC / FIN',
     date_of_birth_label: 'Date of birth',
@@ -467,6 +475,13 @@ export const T: Record<Language, Record<string, string>> = {
     listen: '收听',
     stop: '停止',
 
+    login_subtitle: '请输入您的国民身份证号码/外国人身份证号码和出生日期以继续',
+    login_continue: '继续',
+    login_checking: '检查中…',
+    login_first_time: '首次使用？只需在上方输入您的资料——我们将自动为您设置账户。',
+    login_invalid_nric: '请输入有效的国民身份证号码/外国人身份证号码。',
+    login_generic_error: '出现错误，请重试。',
+
     acc_details_title: '账户详情',
     nric_fin_label: '国民身份证号码/外国人身份证号码',
     date_of_birth_label: '出生日期',
@@ -710,6 +725,13 @@ export const T: Record<Language, Record<string, string>> = {
     listen: 'Dengar',
     stop: 'Berhenti',
 
+    login_subtitle: 'Masukkan NRIC/FIN dan tarikh lahir anda untuk teruskan',
+    login_continue: 'Teruskan',
+    login_checking: 'Menyemak…',
+    login_first_time: 'Kali pertama di sini? Cuma masukkan butiran anda di atas — kami akan menyediakan akaun anda secara automatik.',
+    login_invalid_nric: 'Sila masukkan NRIC/FIN yang sah.',
+    login_generic_error: 'Sesuatu telah berlaku. Sila cuba lagi.',
+
     acc_details_title: 'Butiran akaun',
     nric_fin_label: 'NRIC / FIN',
     date_of_birth_label: 'Tarikh lahir',
@@ -952,6 +974,13 @@ export const T: Record<Language, Record<string, string>> = {
     tts_unsupported: 'இந்த உலாவியில் உரை-பேச்சு ஆதரிக்கப்படவில்லை.',
     listen: 'கேள்',
     stop: 'நிறுத்து',
+
+    login_subtitle: 'தொடர உங்கள் NRIC/FIN மற்றும் பிறந்த தேதியை உள்ளிடவும்',
+    login_continue: 'தொடரவும்',
+    login_checking: 'சரிபார்க்கிறது…',
+    login_first_time: 'முதல் முறையா? மேலே உங்கள் விவரங்களை உள்ளிடவும் — உங்கள் கணக்கை நாங்கள் தானாகவே அமைப்போம்.',
+    login_invalid_nric: 'சரியான NRIC/FIN-ஐ உள்ளிடவும்.',
+    login_generic_error: 'ஏதோ தவறு ஏற்பட்டது. மீண்டும் முயற்சிக்கவும்.',
 
     acc_details_title: 'கணக்கு விவரங்கள்',
     nric_fin_label: 'NRIC / FIN',

@@ -2,12 +2,23 @@ import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { Button } from '../components/ui'
 import { isValidNric } from '../lib/nric'
+import { useLang, T } from '../hooks/i18n'
+import type { Language } from '../types'
 
 interface Props {
   onAuthenticated: (onboardingRequired: boolean) => void
 }
 
+const LANGUAGES: { code: Language; native: string }[] = [
+  { code: 'en', native: 'English' },
+  { code: 'zh', native: '中文' },
+  { code: 'ms', native: 'Melayu' },
+  { code: 'ta', native: 'தமிழ்' },
+]
+
 export default function Login({ onAuthenticated }: Props) {
+  const { language, setLanguage } = useLang()
+  const t = T[language]
   const [nric, setNric] = useState('')
   const [dateOfBirth, setDateOfBirth] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -18,7 +29,7 @@ export default function Login({ onAuthenticated }: Props) {
     setError(null)
 
     if (!isValidNric(nric)) {
-      setError('Please enter a valid NRIC/FIN.')
+      setError(t.login_invalid_nric)
       return
     }
 
@@ -33,19 +44,19 @@ export default function Login({ onAuthenticated }: Props) {
 
       const body = await res.json().catch(() => ({}))
       if (!res.ok) {
-        throw new Error(body.error ?? 'Something went wrong. Please try again.')
+        throw new Error(body.error ?? t.login_generic_error)
       }
 
       onAuthenticated(Boolean(body.onboardingRequired))
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setError(err instanceof Error ? err.message : t.login_generic_error)
     } finally {
       setSubmitting(false)
     }
   }
 
   return (
-    <div className="min-h-full flex flex-col bg-white">
+    <div className="min-h-full flex flex-col bg-white overflow-x-hidden">
       {/* Gradient hero */}
       <div
         className="relative flex-shrink-0 h-56 overflow-hidden"
@@ -72,23 +83,46 @@ export default function Login({ onAuthenticated }: Props) {
             style={{ filter: 'brightness(0) invert(1)' }}
           />
           <p className="text-white text-base font-semibold">
-            Enter your NRIC/FIN and date of birth to continue
+            {t.login_subtitle}
           </p>
         </div>
       </div>
 
       {/* Form sheet */}
       <motion.div
-        initial={{ y: 20, opacity: 0 }}
-        animate={{ y: 0, opacity: 1 }}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
         transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
         className="relative z-10 -mt-6 flex-1 bg-white rounded-t-[28px] flex flex-col items-center px-5 pt-8 pb-10"
       >
         <div className="w-full max-w-sm">
+          <div
+            role="radiogroup"
+            aria-label="Select language"
+            className="flex flex-wrap justify-center gap-1.5 mb-6"
+          >
+            {LANGUAGES.map((item) => (
+              <button
+                key={item.code}
+                type="button"
+                role="radio"
+                aria-checked={language === item.code}
+                onClick={() => setLanguage(item.code)}
+                className={`min-h-[36px] px-2.5 rounded-full text-sm font-medium border transition-colors whitespace-nowrap ${
+                  language === item.code
+                    ? 'bg-teal-700 text-white border-teal-700'
+                    : 'bg-white text-neutral-600 border-neutral-300'
+                }`}
+              >
+                {item.native}
+              </button>
+            ))}
+          </div>
+
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
             <div className="space-y-1.5">
               <label htmlFor="login-nric" className="block text-sm font-medium text-neutral-900">
-                NRIC / FIN
+                {t.nric_fin_label}
               </label>
               <input
                 id="login-nric"
@@ -106,7 +140,7 @@ export default function Login({ onAuthenticated }: Props) {
 
             <div className="space-y-1.5">
               <label htmlFor="login-dob" className="block text-sm font-medium text-neutral-900">
-                Date of birth
+                {t.date_of_birth_label}
               </label>
               <input
                 id="login-dob"
@@ -115,7 +149,7 @@ export default function Login({ onAuthenticated }: Props) {
                 required
                 value={dateOfBirth}
                 onChange={(e) => setDateOfBirth(e.target.value)}
-                className="w-full min-h-[44px] px-4 py-2.5 text-base border border-neutral-300 rounded-lg bg-white text-neutral-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 outline-none"
+                className="block w-full max-w-full min-w-0 min-h-[44px] px-4 py-2.5 text-base border border-neutral-300 rounded-lg bg-white text-neutral-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 outline-none box-border"
               />
             </div>
 
@@ -126,13 +160,13 @@ export default function Login({ onAuthenticated }: Props) {
             )}
 
             <Button type="submit" variant="primary" fullWidth disabled={submitting}>
-              {submitting ? 'Checking…' : 'Continue'}
+              {submitting ? t.login_checking : t.login_continue}
             </Button>
           </form>
 
           <div className="mt-5 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3">
             <p className="text-center text-s text-teal-700">
-              First time here? Just enter your details above — we&apos;ll set up your account automatically.
+              {t.login_first_time}
             </p>
           </div>
         </div>
