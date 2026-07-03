@@ -1,227 +1,313 @@
-import { NextRequest } from "next/server";
-import { geminiModel } from "@/services/gemini";
+import { NextRequest, NextResponse } from "next/server";
+import { validateFile, validatePdfPageCount } from "@/lib/file-validator";
+import { processDocument } from "@/lib/ocr-pipeline";
+import { lookupSubsidies } from "@/lib/subsidy-lookup";
+import { translateBatch, NON_ENGLISH_LANGUAGES } from "@/lib/translator";
+import { translatePurposes, type DeepLLang } from "@/lib/deepl";
 import { createClient } from "@/services/supabase/server";
+import {
+  FileValidationError,
+  NricRedactionError,
+  OcrExtractionError,
+  TimeoutError,
+} from "@/types";
+import type {
+  ExtractedPrescription,
+  ProcessDocumentResponse,
+  SubsidyLookupParams,
+} from "@/types";
 
-const DOCUMENT_TYPES = ["invoice", "referral", "diagnosis", "prescription", "followup", "specialist"] as const;
-
-const EXTRACTION_PROMPT = `You are a medical document parser for Singapore's subsidy system.
-
-Analyse the provided medical document image and extract the following:
-1. Medical codes (ICD-10, SNOMED, or local clinic codes)
-2. Diagnosis or condition names
-3. Date of visit
-4. Healthcare institution name
-5. Document type — classify as exactly one of the following lowercase string values (use the value on the left of the colon, not the description):
-   - "invoice": a bill, receipt, or itemised charges for services/medication issued after a visit
-   - "referral": contains a "Referral To" / "Referral Notes" section directing the patient to another institution, department, or specialist — regardless of the document's title or header (e.g. a page titled "Documents Review Report" that contains referral notes is still "referral")
-   - "diagnosis": states a new diagnosis or chronic condition without referring the patient elsewhere
-   - "prescription": a prescription or medication dispensing slip listing drug names and dosages
-   - "followup": a follow-up appointment reminder or letter for an existing condition
-   - "specialist": a specialist consultation memo or clinical notes from a specialist visit
-   Judge by the document's content and structure, not its printed title. Only use null if none of the above apply after reading the full content.
-
-IMPORTANT: Automatically redact any NRIC numbers (format: [SFTG]XXXXXXX[A-Z]) by replacing them with [REDACTED].
-
-Respond ONLY with a JSON object in this exact shape:
-{
-  "medicalCodes": ["string"],
-  "diagnoses": ["string"],
-  "visitDate": "YYYY-MM-DD or null",
-  "institution": "string or null",
-  "documentType": "invoice|referral|diagnosis|prescription|followup|specialist or null",
-  "rawText": "full extracted text with NRIC redacted"
-}`;
+const PROCESSING_TIMEOUT_MS = 60_000; // 60s — Gemini can be slow on cold starts
 
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const file = formData.get("file") as File | null;
-
-  if (!file) {
-    return Response.json({ error: "No file provided" }, { status: 400 });
-  }
-
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp", "image/heic", "application/pdf"];
-  if (!allowedTypes.includes(file.type)) {
-    return Response.json({ error: "Unsupported file type" }, { status: 400 });
-  }
-
-  const supabase = await createClient();
-
-  const fileBuffer = await file.arrayBuffer();
-  const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
-  const base64 = Buffer.from(fileBuffer).toString("base64");
-
-  // Storage upload and Gemini extraction don't depend on each other — run them
-  // concurrently instead of paying both latencies back-to-back.
-  const [uploadResult, geminiResult] = await Promise.all([
-    supabase.storage.from("documents").upload(fileName, fileBuffer, { contentType: file.type }),
-    geminiModel
-      .generateContent([EXTRACTION_PROMPT, { inlineData: { data: base64, mimeType: file.type } }])
-      .then((result) => ({ text: result.response.text().trim(), error: null as unknown }))
-      .catch((err) => ({ text: null, error: err })),
-  ]);
-
-  const { data: uploadData, error: uploadError } = uploadResult;
-  if (uploadError) {
-    console.error("[process-document] Supabase storage upload failed:", uploadError);
-    return Response.json({ error: "Failed to upload file" }, { status: 500 });
-  }
-
-  if (geminiResult.error || geminiResult.text === null) {
-    console.error("[process-document] Gemini extraction call failed:", geminiResult.error);
-    return Response.json({ error: "Failed to analyse document" }, { status: 500 });
-  }
-  const responseText = geminiResult.text;
-
-  let extracted: {
-    medicalCodes: string[];
-    diagnoses: string[];
-    visitDate: string | null;
-    institution: string | null;
-    documentType: (typeof DOCUMENT_TYPES)[number] | null;
-    rawText: string;
-  };
-
   try {
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    const rawParsed = JSON.parse(jsonMatch ? jsonMatch[0] : responseText);
-    extracted = { ...rawParsed, documentType: normalizeDocumentType(rawParsed.documentType) };
-    if (extracted.documentType === null && rawParsed.documentType) {
-      console.warn(`[process-document] Unrecognized documentType from Gemini: ${JSON.stringify(rawParsed.documentType)}`);
+    const formData = await request.formData();
+    const file = formData.get("file");
+
+    if (!(file instanceof File)) {
+      return NextResponse.json(
+        { error: "No file provided" },
+        { status: 400 }
+      );
     }
-  } catch (err) {
-    console.error("[process-document] Failed to parse Gemini response as JSON:", responseText, err);
-    return Response.json({ error: "Failed to parse extraction result" }, { status: 500 });
-  }
 
-  // Save result to Supabase
-  const { data: submission, error: dbError } = await supabase
-    .from("document_submissions")
-    .insert({
-      storage_path: uploadData.path,
-      medical_codes: extracted.medicalCodes,
-      diagnoses: extracted.diagnoses,
-      visit_date: extracted.visitDate,
-      institution: extracted.institution,
-      raw_text: extracted.rawText,
-    })
-    .select()
-    .single();
+    // --- File Validation ---
+    const validationResult = validateFile(file);
+    if (!validationResult.valid) {
+      return NextResponse.json(
+        { error: validationResult.error },
+        { status: 400 }
+      );
+    }
 
-  if (dbError) {
-    console.error("[process-document] Supabase insert into document_submissions failed:", dbError);
-    return Response.json({ error: "Failed to save submission" }, { status: 500 });
-  }
+    // Read file buffer for further processing
+    const fileBuffer = await file.arrayBuffer();
 
-  const subsidies = await lookupSubsidies(
-    supabase,
-    extracted.medicalCodes,
-    extracted.diagnoses,
-    extracted.institution
-  );
+    // PDF-specific page count check
+    if (file.type === "application/pdf") {
+      const pdfResult = validatePdfPageCount(fileBuffer);
+      if (!pdfResult.valid) {
+        return NextResponse.json(
+          { error: pdfResult.error },
+          { status: 400 }
+        );
+      }
+    }
 
-  if (subsidies.error) {
-    return Response.json({ error: subsidies.error }, { status: 500 });
-  }
+    // --- Parse optional manual fallback fields ---
+    const birthYearValue = formData.get("birthYear");
+    const clinicTypeValue = formData.get("clinicType");
+    const chronicConditionsValue = formData.get("chronicConditions");
+    const birthYearRaw = typeof birthYearValue === "string" ? birthYearValue : null;
+    const clinicTypeRaw = typeof clinicTypeValue === "string" ? clinicTypeValue : null;
+    const chronicConditionsRaw = typeof chronicConditionsValue === "string" ? chronicConditionsValue : null;
 
-  return Response.json({ submission, extracted, subsidies: subsidies.matches, subsidiesMessage: subsidies.message });
-}
+    const parsedBirthYear = birthYearRaw ? Number(birthYearRaw) : undefined;
+    const currentYear = new Date().getFullYear();
+    const birthYear = Number.isInteger(parsedBirthYear) && parsedBirthYear! >= 1900 && parsedBirthYear! <= currentYear
+      ? parsedBirthYear
+      : undefined;
+    const clinicTypes = ["public_hospital", "polyclinic", "gp_clinic"] as const;
+    const clinicType = clinicTypes.find((type) => type === clinicTypeRaw);
 
-// Gemini sometimes returns a synonym or human-readable label instead of the
-// exact enum string despite prompt instructions — normalize common variants
-// before falling back to null.
-const DOCUMENT_TYPE_SYNONYMS: Record<string, (typeof DOCUMENT_TYPES)[number]> = {
-  referral: "referral",
-  "referral letter": "referral",
-  "referral notes": "referral",
-  "referral note": "referral",
-  invoice: "invoice",
-  bill: "invoice",
-  receipt: "invoice",
-  diagnosis: "diagnosis",
-  "diagnosis letter": "diagnosis",
-  "chronic condition letter": "diagnosis",
-  prescription: "prescription",
-  "prescription slip": "prescription",
-  "medication slip": "prescription",
-  followup: "followup",
-  "follow-up": "followup",
-  "follow-up letter": "followup",
-  "follow up letter": "followup",
-  specialist: "specialist",
-  "specialist memo": "specialist",
-  "specialist consultation": "specialist",
-};
+    // --- Parse optional citizenship/income fields (used for CHAS tier and
+    // Pioneer/Merdeka Generation eligibility, and citizenship-gated schemes) ---
+    const citizenshipStatusValue = formData.get("citizenshipStatus");
+    const citizenshipYearValue = formData.get("citizenshipYear");
+    const incomePerCapitaValue = formData.get("incomePerCapita");
 
-function normalizeDocumentType(value: unknown): (typeof DOCUMENT_TYPES)[number] | null {
-  if (typeof value !== "string") return null;
-  const key = value.trim().toLowerCase();
-  if (DOCUMENT_TYPES.includes(key as (typeof DOCUMENT_TYPES)[number])) {
-    return key as (typeof DOCUMENT_TYPES)[number];
-  }
-  return DOCUMENT_TYPE_SYNONYMS[key] ?? null;
-}
+    const citizenshipStatuses = ["citizen", "pr", "foreigner"] as const;
+    const citizenshipStatusRaw =
+      typeof citizenshipStatusValue === "string" ? citizenshipStatusValue : null;
+    const citizenshipStatus = citizenshipStatuses.find(
+      (status) => status === citizenshipStatusRaw
+    );
 
-type InstitutionType = "public_hospital" | "polyclinic" | "gp_clinic";
+    const citizenshipYearRaw =
+      typeof citizenshipYearValue === "string" ? Number(citizenshipYearValue) : undefined;
+    const citizenshipYear =
+      Number.isInteger(citizenshipYearRaw) && citizenshipYearRaw! >= 1900 && citizenshipYearRaw! <= currentYear
+        ? citizenshipYearRaw
+        : undefined;
 
-function mapInstitutionType(institution: string | null): InstitutionType | null {
-  if (!institution) return null;
-  const name = institution.toLowerCase();
-  if (name.includes("polyclinic")) return "polyclinic";
-  if (name.includes("hospital")) return "public_hospital";
-  if (name.includes("clinic")) return "gp_clinic";
-  return null;
-}
+    const incomePerCapitaRaw =
+      typeof incomePerCapitaValue === "string" ? Number(incomePerCapitaValue) : undefined;
+    const incomePerCapita =
+      incomePerCapitaRaw !== undefined && Number.isFinite(incomePerCapitaRaw) && incomePerCapitaRaw >= 0
+        ? incomePerCapitaRaw
+        : undefined;
 
-async function lookupSubsidies(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-  medicalCodes: string[],
-  diagnoses: string[],
-  institution: string | null
-) {
-  const hasCodes = medicalCodes.some((c) => c.trim().length > 0);
-  const hasDiagnoses = diagnoses.some((d) => d.trim().length > 0);
+    let chronicConditions: string[] = [];
+    if (chronicConditionsRaw) {
+      try {
+        const parsed: unknown = JSON.parse(chronicConditionsRaw);
+        chronicConditions = Array.isArray(parsed)
+          ? parsed.filter((item): item is string => typeof item === "string").map((item) => item.trim()).filter(Boolean).slice(0, 50)
+          : [];
+      } catch {
+        // Ignore malformed chronicConditions — proceed without them
+      }
+    }
 
-  if (!hasCodes && !hasDiagnoses) {
-    return {
-      matches: [],
-      message: "Not enough data was extracted from your document to determine subsidy eligibility.",
-      error: null,
+    // --- Processing pipeline with timeout ---
+    const processingPromise = async (): Promise<ProcessDocumentResponse> => {
+      // Step 1: OCR extraction + NRIC redaction (handled internally by processDocument)
+      const { extracted } = await processDocument(fileBuffer, file.type);
+
+      // Step 1.25: Translate prescription frequency/instructions (via Gemini) and
+      // purpose (via DeepL, kept off the Gemini quota) into the non-English
+      // languages for multilingual display/TTS. Runs AFTER NRIC redaction so no
+      // unredacted text is ever sent for translation. Each provider is independently
+      // non-fatal: on failure those fields stay untranslated (English fallback).
+      if (extracted.prescriptions.length > 0) {
+        const DEEPL_TO_SUPPORTED: Record<DeepLLang, "cmn-Hans-CN" | "ms-MY" | "ta-IN"> = {
+          ZH: "cmn-Hans-CN",
+          MS: "ms-MY",
+          TA: "ta-IN",
+        };
+
+        const [frequencyResult, purposeResult] = await Promise.allSettled([
+          translateBatch(
+            extracted.prescriptions.map((p) => ({
+              frequency: p.frequency ?? "",
+              instructions: p.instructions ?? "",
+            }))
+          ),
+          translatePurposes(extracted.prescriptions.map((p) => p.purpose)),
+        ]);
+
+        if (frequencyResult.status === "rejected") {
+          console.error(
+            "[process-document] Prescription frequency/instructions translation failed (non-fatal):",
+            frequencyResult.reason
+          );
+        }
+        if (purposeResult.status === "rejected") {
+          console.error(
+            "[process-document] Prescription purpose translation failed (non-fatal):",
+            purposeResult.reason
+          );
+        }
+
+        const translated = frequencyResult.status === "fulfilled" ? frequencyResult.value : null;
+        const purposeByLang = purposeResult.status === "fulfilled" ? purposeResult.value : null;
+
+        extracted.prescriptions = extracted.prescriptions.map((p, i) => {
+          const perLang = translated?.[i];
+          const translations: NonNullable<
+            ExtractedPrescription["translations"]
+          > = { "en-SG": null, "cmn-Hans-CN": null, "ms-MY": null, "ta-IN": null };
+
+          for (const lang of NON_ENGLISH_LANGUAGES) {
+            const fields = perLang?.[lang];
+            translations[lang] = {
+              // Only surface a translation for fields that had source text.
+              frequency: fields && p.frequency ? fields.frequency : null,
+              instructions: fields && p.instructions ? fields.instructions : null,
+              purpose: null,
+            };
+          }
+          for (const [deeplLang, supportedLang] of Object.entries(DEEPL_TO_SUPPORTED) as [DeepLLang, "cmn-Hans-CN" | "ms-MY" | "ta-IN"][]) {
+            const purpose = purposeByLang?.[deeplLang][i] ?? null;
+            translations[supportedLang] = { ...translations[supportedLang]!, purpose };
+          }
+
+          return { ...p, translations };
+        });
+      }
+
+      // Step 1.5: Persist the file + extraction to Supabase — non-fatal on failure,
+      // since the extraction result is still valuable even if persistence fails.
+      try {
+        const supabase = await createClient();
+        const fileName = `${Date.now()}-${file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_")}`;
+
+        const { data: uploadData, error: uploadError } = await supabase.storage
+          .from("documents")
+          .upload(fileName, fileBuffer, { contentType: file.type });
+
+        if (uploadError) {
+          console.error("[process-document] Supabase storage upload failed (non-fatal):", uploadError);
+        } else {
+          const { error: dbError } = await supabase.from("document_submissions").insert({
+            storage_path: uploadData.path,
+            medical_codes: extracted.medicalCodes,
+            diagnoses: extracted.diagnoses,
+            visit_date: extracted.visitDate,
+            institution: extracted.institution,
+            raw_text: extracted.rawText,
+          });
+
+          if (dbError) {
+            console.error("[process-document] Supabase insert into document_submissions failed (non-fatal):", dbError);
+          }
+        }
+      } catch (persistError) {
+        console.error("[process-document] Document persistence failed (non-fatal):", persistError);
+      }
+
+      // Step 2: Subsidy lookup — gracefully handle failures
+      let subsidies: ProcessDocumentResponse["subsidies"] = [];
+      let message: string | null = null;
+      let needsManualInput = false;
+
+      try {
+        const lookupParams: SubsidyLookupParams = {
+          medicalCodes: extracted.medicalCodes,
+          diagnoses: [
+            ...extracted.diagnoses,
+            ...chronicConditions,
+          ],
+          claimedSubsidies: extracted.claimedSubsidies,
+          billItemDescriptions: extracted.bill?.items.map((item) => item.description) ?? [],
+          institution: extracted.institution,
+          birthYear,
+          clinicType: clinicType || undefined,
+          citizenshipStatus,
+          citizenshipYear,
+          incomePerCapita,
+        };
+
+        const lookupResult = await lookupSubsidies(lookupParams);
+        subsidies = lookupResult.subsidies;
+        message = lookupResult.message;
+        needsManualInput = lookupResult.needsManualInput;
+      } catch (subsidyError) {
+        // Subsidy lookup failure should NOT crash the whole request.
+        // The OCR extraction is the valuable part — return it with empty subsidies.
+        console.error("[process-document] Subsidy lookup failed (non-fatal):", subsidyError);
+        message = "Subsidy lookup is temporarily unavailable. Your document was processed successfully.";
+        needsManualInput = false;
+      }
+
+      return {
+        extracted,
+        subsidies,
+        message,
+        needsManualInput,
+      };
     };
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      setTimeout(() => {
+        reject(new TimeoutError("Processing timed out"));
+      }, PROCESSING_TIMEOUT_MS);
+    });
+
+    const result = await Promise.race([processingPromise(), timeoutPromise]);
+
+    return NextResponse.json(result, { status: 200 });
+  } catch (error: unknown) {
+    // --- Error mapping with logging ---
+    if (error instanceof FileValidationError) {
+      console.error("[process-document] File validation error:", error.message);
+      return NextResponse.json(
+        { error: error.message },
+        { status: 400 }
+      );
+    }
+
+    if (error instanceof NricRedactionError) {
+      console.error("[process-document] NRIC redaction error:", error.message);
+      return NextResponse.json(
+        { error: "Privacy protection failed - document rejected" },
+        { status: 500 }
+      );
+    }
+
+    if (error instanceof OcrExtractionError) {
+      console.error("[process-document] OCR extraction error:", error.message);
+      return NextResponse.json(
+        { error: "Document extraction failed. Please try a clearer image." },
+        { status: 500 }
+      );
+    }
+
+    if (error instanceof TimeoutError) {
+      console.error("[process-document] Timeout error:", error.message);
+      return NextResponse.json(
+        { error: "Processing timed out. Please try again." },
+        { status: 504 }
+      );
+    }
+
+    // Check for AbortSignal timeout (DOMException with name "TimeoutError")
+    if (
+      error instanceof Error &&
+      error.name === "TimeoutError"
+    ) {
+      console.error("[process-document] AbortSignal timeout:", error.message);
+      return NextResponse.json(
+        { error: "Processing timed out. Please try again." },
+        { status: 504 }
+      );
+    }
+
+    // Unexpected errors
+    console.error("[process-document] Unexpected error:", error);
+    return NextResponse.json(
+      { error: "An unexpected error occurred" },
+      { status: 500 }
+    );
   }
-
-  const { data: schemes, error } = await supabase.from("subsidy_schemes").select("*");
-
-  if (error) {
-    console.error("[process-document] Supabase select on subsidy_schemes failed:", error);
-    return { matches: [], message: null, error: "Failed to look up subsidies. Please try again later." };
-  }
-
-  const institutionType = mapInstitutionType(institution);
-  const lowerDiagnoses = diagnoses.map((d) => d.toLowerCase());
-
-  const matches = (schemes ?? []).filter((scheme) => {
-    const isUniversal = scheme.applicable_diagnoses.length === 0 && scheme.applicable_codes.length === 0;
-    const conditionMatch =
-      isUniversal ||
-      scheme.applicable_diagnoses.some((d: string) =>
-        lowerDiagnoses.some((docDiagnosis) => docDiagnosis.includes(d.toLowerCase()))
-      ) ||
-      scheme.applicable_codes.some((c: string) => medicalCodes.includes(c));
-
-    const institutionMatch =
-      !institutionType ||
-      scheme.institution_types.length === 0 ||
-      scheme.institution_types.includes(institutionType);
-
-    return conditionMatch && institutionMatch;
-  });
-
-  return {
-    matches,
-    message: matches.length === 0
-      ? "No matching subsidy schemes were found. Consider consulting a medical social worker for further assistance."
-      : null,
-    error: null,
-  };
 }

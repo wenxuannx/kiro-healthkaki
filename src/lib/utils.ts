@@ -16,7 +16,7 @@ export const MOCK_MEDICATIONS: Medication[] = [
     frequency: 'Twice a day — morning and evening',
     timing: 'Take with or after meals to reduce stomach upset',
     specialNotes: 'Do not skip doses. If you feel dizzy or nauseous, take with food.',
-    icon: '💊',
+    icon: 'pill',
     translations: {
       zh: {
         purpose: '控制您的血糖水平（2型糖尿病）',
@@ -47,7 +47,7 @@ export const MOCK_MEDICATIONS: Medication[] = [
     frequency: 'Once a day — every morning',
     timing: 'Take at the same time each morning, with or without food',
     specialNotes: 'May cause ankle swelling or dizziness when standing up. Rise slowly from bed.',
-    icon: '❤️',
+    icon: 'heart',
     translations: {
       zh: {
         purpose: '降低血压并减少心脏病风险',
@@ -78,7 +78,7 @@ export const MOCK_MEDICATIONS: Medication[] = [
     frequency: 'Once a day — every night before bed',
     timing: 'Take at night — cholesterol production is highest while you sleep',
     specialNotes: 'Avoid grapefruit juice. If you have muscle pain or weakness, inform your doctor.',
-    icon: '🫀',
+    icon: 'activity',
     translations: {
       zh: {
         purpose: '降低胆固醇水平以保护心脏和血管',
@@ -106,7 +106,7 @@ export const MOCK_RESULT: ScanResult = {
   id: 'scan_001',
   date: '15 Jan 2025',
   time: '2:30 PM',
-  documentType: 'Polyclinic Invoice',
+  documentType: 'Clinic Bill',
   clinicName: 'Toa Payoh Polyclinic',
   totalBill: 120,
   totalSaved: 91,
@@ -128,12 +128,16 @@ export const MOCK_RESULT: ScanResult = {
   subsidies: [
     {
       id: 'pioneer',
+      schemeId: 'pioneer_generation',
       name: 'Pioneer Generation Package',
       chineseName: '建国一代配套',
       eligible: true,
       saves: 41,
       outOfPocket: 79,
-      icon: '🎖️',
+      amount: null,
+      amountPeriod: null,
+      coverageNote: null,
+      icon: 'award',
       badgeColor: 'orange',
       description: 'For Singapore Citizens born on or before 31 Dec 1949 who became citizens before 1 Jan 1987.',
       benefits: ['Additional CHAS subsidies at GP and dental clinics', 'MediShield Life premium subsidies (up to 60%)', 'Annual MediSave top-ups ($200–$800)', 'Outpatient subsidies at Specialist Outpatient Clinics'],
@@ -141,12 +145,16 @@ export const MOCK_RESULT: ScanResult = {
     },
     {
       id: 'cdmp',
+      schemeId: 'medisave_cdmp',
       name: 'Chronic Disease Management',
       chineseName: '慢性病管理计划',
       eligible: true,
       saves: 30,
       outOfPocket: 49,
-      icon: '🏥',
+      amount: null,
+      amountPeriod: null,
+      coverageNote: null,
+      icon: 'hospital',
       badgeColor: 'teal',
       description: 'CDMP covers subsidised treatment for 23 chronic conditions including diabetes, hypertension, and high cholesterol.',
       benefits: ['MediSave can be used for chronic disease treatments', 'Up to $500 per year from MediSave for CDMP', 'Applies at CHAS GPs and polyclinics', 'Covers medications and related tests'],
@@ -154,12 +162,16 @@ export const MOCK_RESULT: ScanResult = {
     },
     {
       id: 'chas',
+      schemeId: 'chas_blue',
       name: 'CHAS (Community Health Assist)',
       chineseName: '综合健保计划',
       eligible: true,
       saves: 20,
       outOfPocket: 29,
-      icon: '🏷️',
+      amount: null,
+      amountPeriod: null,
+      coverageNote: null,
+      icon: 'tag',
       badgeColor: 'navy',
       description: 'CHAS provides subsidies to lower and middle-income Singaporeans at participating GP and dental clinics.',
       benefits: ['Subsidised GP consultations', 'Subsidised dental treatments', 'Lower co-payment for chronic disease management', 'Valid at 1,800+ participating clinics island-wide'],
@@ -167,12 +179,16 @@ export const MOCK_RESULT: ScanResult = {
     },
     {
       id: 'merdeka',
+      schemeId: 'merdeka_generation',
       name: 'Merdeka Generation Package',
       chineseName: '立国一代配套',
       eligible: false,
       saves: 0,
       outOfPocket: 120,
-      icon: '🏅',
+      amount: null,
+      amountPeriod: null,
+      coverageNote: null,
+      icon: 'medal',
       badgeColor: 'gray',
       description: 'For Singapore Citizens born between 1 Jan 1950 and 31 Dec 1959 who became citizens before 31 Dec 1996.',
       benefits: ['Additional CHAS subsidies', 'MediShield Life premium subsidies (up to 25%)', 'Annual MediSave top-ups ($200)'],
@@ -182,8 +198,8 @@ export const MOCK_RESULT: ScanResult = {
 }
 
 export const MOCK_HISTORY: HistoryItem[] = [
-  { id: 'h1', date: '15 Jan 2025', time: '2:30 PM', clinicName: 'Toa Payoh Polyclinic',   outOfPocket: 0,  totalSaved: 91,  documentType: 'Polyclinic Invoice' },
+  { id: 'h1', date: '15 Jan 2025', time: '2:30 PM', clinicName: 'Toa Payoh Polyclinic',   outOfPocket: 0,  totalSaved: 91,  documentType: 'Clinic Bill' },
   { id: 'h2', date: '14 Jan 2025', time: '3:15 PM', clinicName: 'Ang Mo Kio Polyclinic',  outOfPocket: 0,  totalSaved: 65,  documentType: 'Prescription Slip' },
   { id: 'h3', date: '28 Nov 2024', time: '10:15 AM', clinicName: 'SGH Specialist Clinic', outOfPocket: 15, totalSaved: 126, documentType: 'Referral Letter' },
-  { id: 'h4', date: '5 Oct 2024',  time: '4:00 PM', clinicName: 'CHAS GP Clinic',         outOfPocket: 5,  totalSaved: 43,  documentType: 'Diagnosis Letter' },
+  { id: 'h4', date: '5 Oct 2024',  time: '4:00 PM', clinicName: 'CHAS GP Clinic',         outOfPocket: 5,  totalSaved: 43,  documentType: 'Clinic Bill' },
 ]
