@@ -28,6 +28,8 @@ function Section({ icon: Icon, title, children }: { icon: React.ElementType; tit
 }
 
 function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProfileUpdate: (profile: Profile) => void }) {
+  const { language } = useLang()
+  const t = T[language]
   const [editing, setEditing] = useState(false)
   const [fullName, setFullName] = useState(profile.full_name ?? '')
   const [citizenshipStatus, setCitizenshipStatus] = useState<CitizenshipStatus | ''>(profile.citizenship_status ?? '')
@@ -54,15 +56,15 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
     setError(null)
 
     if (!citizenshipStatus) {
-      setError('Please select your citizenship status.')
+      setError(t.acc_select_citizenship_error)
       return
     }
     if (!householdIncome) {
-      setError('Please select your household monthly income.')
+      setError(t.acc_select_income_error)
       return
     }
     if (!householdSize) {
-      setError('Please enter your household size.')
+      setError(t.acc_enter_household_size_error)
       return
     }
 
@@ -83,14 +85,14 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
 
       if (!res.ok) {
         const body = await res.json().catch(() => ({}))
-        throw new Error(body.error ?? 'Failed to save your profile')
+        throw new Error(body.error ?? t.acc_save_failed)
       }
 
       const { profile: updated } = (await res.json()) as { profile: Profile }
       onProfileUpdate(updated)
       setEditing(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong')
+      setError(err instanceof Error ? err.message : t.generic_error)
     } finally {
       setSubmitting(false)
     }
@@ -104,41 +106,41 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
       <div className="flex flex-col gap-3">
         <dl className="text-sm divide-y divide-neutral-100">
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">NRIC / FIN</dt>
+            <dt className="text-neutral-500">{t.nric_fin_label}</dt>
             <dd className="font-medium text-neutral-900">{profile.nric}</dd>
           </div>
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">Date of birth</dt>
+            <dt className="text-neutral-500">{t.date_of_birth_label}</dt>
             <dd className="font-medium text-neutral-900">{profile.date_of_birth}</dd>
           </div>
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">Full name</dt>
-            <dd className="font-medium text-neutral-900">{profile.full_name ?? 'Not set'}</dd>
+            <dt className="text-neutral-500">{t.full_name_label}</dt>
+            <dd className="font-medium text-neutral-900">{profile.full_name ?? t.not_set}</dd>
           </div>
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">Citizenship status</dt>
-            <dd className="font-medium text-neutral-900">{citizenshipLabel ?? 'Not set'}</dd>
+            <dt className="text-neutral-500">{t.citizenship_status_label}</dt>
+            <dd className="font-medium text-neutral-900">{citizenshipLabel ?? t.not_set}</dd>
           </div>
           {profile.citizenship_year != null && (
             <div className="flex justify-between py-2">
-              <dt className="text-neutral-500">Citizenship year</dt>
+              <dt className="text-neutral-500">{t.citizenship_year_label}</dt>
               <dd className="font-medium text-neutral-900">{profile.citizenship_year}</dd>
             </div>
           )}
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">Household monthly income</dt>
-            <dd className="font-medium text-neutral-900">{incomeLabel ?? 'Not set'}</dd>
+            <dt className="text-neutral-500">{t.household_income_label}</dt>
+            <dd className="font-medium text-neutral-900">{incomeLabel ?? t.not_set}</dd>
           </div>
           <div className="flex justify-between py-2">
-            <dt className="text-neutral-500">Household size</dt>
-            <dd className="font-medium text-neutral-900">{profile.household_size ?? 'Not set'}</dd>
+            <dt className="text-neutral-500">{t.household_size_label}</dt>
+            <dd className="font-medium text-neutral-900">{profile.household_size ?? t.not_set}</dd>
           </div>
         </dl>
         <button
           onClick={startEditing}
           className="text-sm font-semibold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-3 py-1.5 hover:bg-teal-100 active:scale-95 transition-all self-start"
         >
-          Edit
+          {t.edit_label}
         </button>
       </div>
     )
@@ -148,18 +150,18 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
     <form onSubmit={handleSave} className="flex flex-col gap-4" noValidate>
       <div className="text-sm divide-y divide-neutral-100 mb-1">
         <div className="flex justify-between py-2">
-          <span className="text-neutral-500">NRIC / FIN</span>
+          <span className="text-neutral-500">{t.nric_fin_label}</span>
           <span className="font-medium text-neutral-900">{profile.nric}</span>
         </div>
         <div className="flex justify-between py-2">
-          <span className="text-neutral-500">Date of birth</span>
+          <span className="text-neutral-500">{t.date_of_birth_label}</span>
           <span className="font-medium text-neutral-900">{profile.date_of_birth}</span>
         </div>
       </div>
 
       <div className="space-y-1.5">
         <label htmlFor="acc-full-name" className="block text-sm font-medium text-neutral-900">
-          Full name
+          {t.full_name_label}
         </label>
         <input
           id="acc-full-name"
@@ -173,7 +175,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
 
       <div className="space-y-1.5">
         <label htmlFor="acc-citizenship" className="block text-sm font-medium text-neutral-900">
-          Citizenship status <span aria-hidden="true">*</span>
+          {t.citizenship_status_label} <span aria-hidden="true">*</span>
         </label>
         <select
           id="acc-citizenship"
@@ -182,7 +184,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
           onChange={(e) => setCitizenshipStatus(e.target.value as CitizenshipStatus)}
           className="w-full min-h-[44px] px-4 py-2.5 text-base border border-neutral-300 rounded-lg bg-white text-neutral-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 outline-none"
         >
-          <option value="" disabled>Select one</option>
+          <option value="" disabled>{t.select_one}</option>
           {CITIZENSHIP_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
@@ -192,7 +194,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
       {showCitizenshipYear && (
         <div className="space-y-1.5">
           <label htmlFor="acc-citizenship-year" className="block text-sm font-medium text-neutral-900">
-            Year you became a {citizenshipStatus === 'citizen' ? 'citizen' : 'PR'} (optional)
+            {citizenshipStatus === 'citizen' ? t.year_became_citizen : t.year_became_pr}
           </label>
           <input
             id="acc-citizenship-year"
@@ -209,7 +211,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
 
       <div className="space-y-1.5">
         <label htmlFor="acc-income" className="block text-sm font-medium text-neutral-900">
-          Household monthly income, $ <span aria-hidden="true">*</span>
+          {t.household_income_label_form} <span aria-hidden="true">*</span>
         </label>
         <select
           id="acc-income"
@@ -218,7 +220,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
           onChange={(e) => setHouseholdIncome(e.target.value)}
           className="w-full min-h-[44px] px-4 py-2.5 text-base border border-neutral-300 rounded-lg bg-white text-neutral-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 outline-none"
         >
-          <option value="" disabled>Select a range</option>
+          <option value="" disabled>{t.select_a_range}</option>
           {INCOME_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
           ))}
@@ -227,7 +229,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
 
       <div className="space-y-1.5">
         <label htmlFor="acc-household-size" className="block text-sm font-medium text-neutral-900">
-          Household size <span aria-hidden="true">*</span>
+          {t.household_size_label} <span aria-hidden="true">*</span>
         </label>
         <input
           id="acc-household-size"
@@ -247,7 +249,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
 
       <div className="flex gap-2">
         <Button type="submit" variant="primary" className="flex-1" disabled={submitting}>
-          {submitting ? 'Saving…' : 'Save'}
+          {submitting ? t.saving_label : t.save_label}
         </Button>
         <button
           type="button"
@@ -255,7 +257,7 @@ function AccountDetails({ profile, onProfileUpdate }: { profile: Profile; onProf
           disabled={submitting}
           className="text-sm font-semibold text-neutral-600 bg-neutral-100 border border-neutral-200 rounded-full px-4 min-h-[44px] disabled:opacity-60"
         >
-          Cancel
+          {t.cancel_label}
         </button>
       </div>
     </form>
@@ -331,7 +333,7 @@ export default function Settings({ onSignOut, profile, onProfileUpdate }: Props)
         </Section>
 
 
-        <Section icon={User} title="Account details">
+        <Section icon={User} title={t.acc_details_title}>
           <AccountDetails profile={profile} onProfileUpdate={onProfileUpdate} />
         </Section>
 

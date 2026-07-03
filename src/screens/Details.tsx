@@ -68,11 +68,11 @@ export default function Details({ onNavigate, subsidy }: Props) {
                 {s.amountPeriod === 'year' ? `${t.subsidy_covers} (up to)` : t.subsidy_covers}
               </p>
               <p className="text-3xl font-bold text-success-500">${s.amount.toFixed(2)}</p>
-              <p className="text-xs text-neutral-400 mt-1">{s.amountPeriod === 'year' ? 'per year' : 'per visit'}</p>
+              <p className="text-xs text-neutral-400 mt-1">{s.amountPeriod === 'year' ? t.per_year : t.per_visit}</p>
             </div>
           ) : s.coverageNote ? (
             <div className="bg-teal-50 border border-teal-200 rounded-xl p-4 text-center">
-              <p className="text-xs text-teal-700 font-semibold uppercase mb-1">Amount varies</p>
+              <p className="text-xs text-teal-700 font-semibold uppercase mb-1">{t.amount_varies}</p>
               <p className="text-base text-teal-700 leading-snug">{s.coverageNote}</p>
             </div>
           ) : (

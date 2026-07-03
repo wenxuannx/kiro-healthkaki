@@ -91,7 +91,7 @@ function toSubsidyCard(
     outOfPocket: Math.max(0, 100 - result.estimatedCoveragePercent),
     amount: result.estimatedAmount,
     amountPeriod: result.estimatedAmountPeriod,
-    coverageNote: result.coverageNote,
+    coverageNote: result.coverageNoteTranslations?.[language] ?? result.coverageNote,
     icon: style?.[1] ?? 'file',
     badgeColor: style?.[2] ?? 'teal',
     description: translatedDescription,
@@ -143,6 +143,11 @@ function buildResultsSpeech(
   subsidies: SubsidyResult[],
   institution: string | null,
   diagnoses: string[] = [],
+  billTotal: number | null = null,
+  currency: string = 'SGD',
+  totalCoverage: number | null = null,
+  savedAmount: number | null = null,
+  payableAmount: number | null = null,
 ): string {
   const supported = LANG_TO_SUPPORTED[language]
   const clinic = institution ?? ''
@@ -174,28 +179,67 @@ function buildResultsSpeech(
     ta: `${clinic} முடிவுகள். உங்களுக்காக ${subsidies.length} மானியத் திட்டங்கள் கண்டறியப்பட்டன.`,
   }
 
+  const billSentence = billTotal === null
+    ? ''
+    : payableAmount !== null && savedAmount !== null && totalCoverage !== null
+      ? {
+          en: `Your original bill is ${formatMoney(currency, billTotal)}. After subsidies, you pay up to ${100 - totalCoverage} percent, about ${formatMoney(currency, payableAmount)}, saving you about ${formatMoney(currency, savedAmount)}. The final payable amount requires provider confirmation.`,
+          zh: `您的原始账单为${formatMoney(currency, billTotal)}。补贴后，您最多需支付${100 - totalCoverage}%，约${formatMoney(currency, payableAmount)}，为您节省约${formatMoney(currency, savedAmount)}。最终应付款项需经服务提供商确认。`,
+          ms: `Bil asal anda ialah ${formatMoney(currency, billTotal)}. Selepas subsidi, anda membayar sehingga ${100 - totalCoverage} peratus, iaitu kira-kira ${formatMoney(currency, payableAmount)}, menjimatkan kira-kira ${formatMoney(currency, savedAmount)}. Jumlah akhir yang perlu dibayar memerlukan pengesahan penyedia.`,
+          ta: `உங்கள் அசல் மசோதா ${formatMoney(currency, billTotal)}. மானியங்களுக்குப் பிறகு, நீங்கள் ${100 - totalCoverage} சதவீதம் வரை, சுமார் ${formatMoney(currency, payableAmount)} செலுத்த வேண்டும், இது சுமார் ${formatMoney(currency, savedAmount)} சேமிக்கிறது. கடைசி செலுத்த வேண்டிய தொகைக்கு வழங்குநரின் உறுதிப்படுத்தல் தேவை.`,
+        }[language]
+      : {
+          en: `Your original bill is ${formatMoney(currency, billTotal)}.`,
+          zh: `您的原始账单为${formatMoney(currency, billTotal)}。`,
+          ms: `Bil asal anda ialah ${formatMoney(currency, billTotal)}.`,
+          ta: `உங்கள் அசல் மசோதா ${formatMoney(currency, billTotal)}.`,
+        }[language]
+
+  const periodWord: Record<'visit' | 'year', Record<Language, string>> = {
+    visit: { en: 'per visit', zh: '每次就诊', ms: 'setiap lawatan', ta: 'ஒரு வருகைக்கு' },
+    year: { en: 'a year', zh: '每年', ms: 'setahun', ta: 'ஆண்டுக்கு' },
+  }
+
   const perScheme = subsidies.map((s) => {
     const translation = s.translations[supported]
     const name = translation?.schemeName ?? s.schemeName
     const desc = translation?.coverageDescription ?? s.coverageDescription
     const pct = s.estimatedCoveragePercent
-    const coverage: Record<Language, string> = s.coverageNote
-      ? {
-          en: `${name}, coverage varies. ${desc}`,
-          zh: `${name}，覆盖比例视情况而定。${desc}`,
-          ms: `${name}, perlindungan berbeza-beza. ${desc}`,
-          ta: `${name}, பாதுகாப்பு மாறுபடும். ${desc}`,
-        }
-      : {
-          en: `${name}, up to ${pct} percent coverage. ${desc}`,
-          zh: `${name}，最高覆盖百分之 ${pct}。${desc}`,
-          ms: `${name}, perlindungan sehingga ${pct} peratus. ${desc}`,
-          ta: `${name}, ${pct} சதவீதம் வரை. ${desc}`,
-        }
-    return coverage[language]
+
+    // Mirrors the card display logic: a coverageNote alongside a real,
+    // non-zero percentage (e.g. Merdeka Generation's 25% bonus, MediShield
+    // Life's 5%/10% age bonus) should still be read out as a percentage —
+    // "coverage varies" is only correct when there's truly no computed
+    // percentage or dollar amount (e.g. MediFund's case-by-case review).
+    if (s.estimatedAmount !== null) {
+      const amountText = formatMoney('SGD', s.estimatedAmount)
+      const period = periodWord[s.estimatedAmountPeriod === 'year' ? 'year' : 'visit'][language]
+      return {
+        en: `${name}, up to ${amountText} ${period}. ${desc}`,
+        zh: `${name}，最高${amountText}${period}。${desc}`,
+        ms: `${name}, sehingga ${amountText} ${period}. ${desc}`,
+        ta: `${name}, ${amountText} ${period} வரை. ${desc}`,
+      }[language]
+    }
+
+    if (pct > 0) {
+      return {
+        en: `${name}, up to ${pct} percent coverage. ${desc}`,
+        zh: `${name}，最高覆盖百分之 ${pct}。${desc}`,
+        ms: `${name}, perlindungan sehingga ${pct} peratus. ${desc}`,
+        ta: `${name}, ${pct} சதவீதம் வரை. ${desc}`,
+      }[language]
+    }
+
+    return {
+      en: `${name}, coverage varies. ${desc}`,
+      zh: `${name}，覆盖比例视情况而定。${desc}`,
+      ms: `${name}, perlindungan berbeza-beza. ${desc}`,
+      ta: `${name}, பாதுகாப்பு மாறுபடும். ${desc}`,
+    }[language]
   })
 
-  return [intro[language].trim(), diagnosisSentence, ...perScheme].filter(Boolean).join(' ')
+  return [intro[language].trim(), diagnosisSentence, billSentence, ...perScheme].filter(Boolean).join(' ')
 }
 
 /**
@@ -326,24 +370,6 @@ export default function Results({
   const { language } = useLang()
   const t = T[language]
 
-  const spokenText = apiResult
-    ? apiResult.extracted.documentType === 'referral'
-      ? buildReferralSpeech(
-          language,
-          apiResult.extracted.institution,
-          apiResult.extracted.diagnoses,
-          apiResult.extracted.referralType,
-          apiResult.extracted.appointmentDateTime,
-          apiResult.extracted.appointmentCenterTel,
-        )
-      : buildResultsSpeech(
-          language,
-          apiResult.subsidies,
-          apiResult.extracted.institution,
-          apiResult.extracted.diagnoses,
-        )
-    : ''
-
   if (!apiResult) {
     return <EmptyResults onNavigate={onNavigate} t={t} />
   }
@@ -358,17 +384,6 @@ export default function Results({
   const billTotal = extracted.bill?.totalAmount ?? null
   const currency = extracted.bill?.currency ?? 'SGD'
   const hasAppliedSubsidy = subsidyCards.some((card) => card.eligible)
-  // Prefer the payable amount actually printed on the bill (e.g. "Patient
-  // Total") over an estimate — it reflects the real deduction, not a coverage
-  // percentage. Only fall back to "unknown" when the document doesn't print one.
-  const billPayable = extracted.bill?.payableAmount ?? null
-  const payableAmount = billPayable !== null ? billPayable : hasAppliedSubsidy ? null : billTotal
-  const savedAmount =
-    billPayable !== null && billTotal !== null
-      ? Math.max(0, billTotal - billPayable)
-      : !hasAppliedSubsidy && billTotal !== null
-        ? 0
-        : null
 
   const sections = sectionsFor(extracted.documentType)
 
@@ -399,25 +414,102 @@ export default function Results({
   // a coverage percentage rather than a dollar deduction — showing "$—" as
   // the headline in that case would present a placeholder as if it were data,
   // so the headline becomes the coverage percentage instead.
-  // Cards with a coverageNote have no real percentage (their saves value is a
-  // placeholder 0 from the DB's null coverage_percentage) — exclude them so
-  // they can't drag the headline down to a misleading "Up to 0%".
-  const cardsWithKnownCoverage = subsidyCards.filter((card) => !card.coverageNote)
-  const topCoverage = cardsWithKnownCoverage.length > 0
-    ? Math.max(...cardsWithKnownCoverage.map((card) => card.saves))
+  // A coverageNote usually means no real percentage (saves is a placeholder 0
+  // from the DB's null coverage_percentage) — exclude those so they can't drag
+  // the headline down to a misleading "Up to 0%". But a note can also be
+  // purely explanatory on top of a real bonus percentage (e.g. Merdeka
+  // Generation's 25% bonus, MediShield Life's 5%/10% age bonus) — saves > 0
+  // is the actual signal for "this card has real coverage data".
+  const cardsWithKnownCoverage = subsidyCards.filter((card) => card.saves > 0 || !card.coverageNote)
+  // Multiple schemes can apply to the same bill and stack (e.g. Merdeka
+  // Generation's 25% bonus plus MediShield Life's 5% age bonus) — sum their
+  // coverage rather than taking the single highest one, capped at 100% since
+  // coverage can't exceed the full bill.
+  const totalCoverage = cardsWithKnownCoverage.length > 0
+    ? Math.min(100, cardsWithKnownCoverage.reduce((sum, card) => sum + card.saves, 0))
     : null
+
+  // Prefer computing the deduction from the app's own matched subsidies over
+  // the OCR-extracted "Patient Total" printed on the bill, since that figure
+  // can disagree with what the schemes actually cover (e.g. missing a flat
+  // CHAS deduction). Same-bill flat amounts (e.g. Merdeka Generation's $23.50
+  // per visit) are summed first; annual-pool amounts (e.g. Flexi-MediSave's
+  // $400/yr MediSave withdrawal allowance) are a separate reimbursement pool,
+  // not a discount on this bill, so they're excluded. Any remaining
+  // percentage-based coverage (from cards without a same-bill dollar amount)
+  // is then applied to what's left after the flat deduction.
+  const flatDeduction = cardsWithKnownCoverage
+    .filter((card) => card.amount !== null && card.amountPeriod !== 'year')
+    .reduce((sum, card) => sum + (card.amount ?? 0), 0)
+  const remainingPercentCoverage = Math.min(
+    100,
+    cardsWithKnownCoverage
+      .filter((card) => card.amount === null || card.amountPeriod === 'year')
+      .reduce((sum, card) => sum + card.saves, 0),
+  )
+  const computedSavedAmount =
+    billTotal !== null && (flatDeduction > 0 || remainingPercentCoverage > 0)
+      ? Math.min(
+          billTotal,
+          flatDeduction + (billTotal - flatDeduction) * (remainingPercentCoverage / 100),
+        )
+      : null
+  const computedPayableAmount =
+    computedSavedAmount !== null && billTotal !== null ? billTotal - computedSavedAmount : null
+
+  // Only fall back to the OCR-printed "Patient Total" (or the untouched bill
+  // total when no subsidy applied) when we couldn't compute a deduction from
+  // the matched subsidies ourselves.
+  const billPayable = extracted.bill?.payableAmount ?? null
+  const displayPayableAmount =
+    computedPayableAmount ??
+    (billPayable !== null ? billPayable : hasAppliedSubsidy ? null : billTotal)
+  const displaySavedAmount =
+    computedSavedAmount ??
+    (billPayable !== null && billTotal !== null
+      ? Math.max(0, billTotal - billPayable)
+      : !hasAppliedSubsidy && billTotal !== null
+        ? 0
+        : null)
+
+  // The headline is what the patient pays, i.e. the complement of total
+  // coverage — not the coverage percentage itself.
   const heroHeadline =
-    payableAmount !== null
-      ? formatMoney(currency, payableAmount)
-      : topCoverage !== null
-        ? `Up to ${topCoverage}%`
+    displayPayableAmount !== null
+      ? formatMoney(currency, displayPayableAmount)
+      : totalCoverage !== null
+        ? `Up to ${100 - totalCoverage}%`
         : null
+
+  // Built from the same computed cards/totals rendered above, so what's
+  // spoken always matches what's shown on screen.
+  const spokenText =
+    extracted.documentType === 'referral'
+      ? buildReferralSpeech(
+          language,
+          extracted.institution,
+          extracted.diagnoses,
+          extracted.referralType,
+          extracted.appointmentDateTime,
+          extracted.appointmentCenterTel,
+        )
+      : buildResultsSpeech(
+          language,
+          subsidies,
+          extracted.institution,
+          extracted.diagnoses,
+          billTotal,
+          currency,
+          totalCoverage,
+          displaySavedAmount,
+          displayPayableAmount,
+        )
 
   const GRID_COLS: Record<number, string> = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' }
   const summaryItems = [
     billTotal !== null && { label: t.original_bill, value: formatMoney(currency, billTotal), color: 'text-neutral-700' },
-    savedAmount !== null && { label: t.total_saved, value: formatMoney(currency, savedAmount), color: 'text-success-500' },
-    payableAmount !== null && { label: t.before_medisave, value: formatMoney(currency, payableAmount), color: 'text-teal-700' },
+    displaySavedAmount !== null && { label: t.total_saved, value: formatMoney(currency, displaySavedAmount), color: 'text-success-500' },
+    displayPayableAmount !== null && { label: t.before_medisave, value: formatMoney(currency, displayPayableAmount), color: 'text-teal-700' },
   ].filter((item): item is { label: string; value: string; color: string } => Boolean(item))
 
   return (
@@ -526,9 +618,9 @@ export default function Results({
                   <p className="text-[52px] font-bold text-teal-700 leading-none mb-2">
                     {heroHeadline}
                   </p>
-                  {(payableAmount === null || !hasAppliedSubsidy) && (
+                  {(displayPayableAmount === null || !hasAppliedSubsidy) && (
                     <p className="text-sm text-neutral-500 mb-4">
-                      {payableAmount === null ? t.requires_confirmation : t.no_matching}
+                      {displayPayableAmount === null ? t.requires_confirmation : t.no_matching}
                     </p>
                   )}
                 </>
@@ -642,31 +734,31 @@ export default function Results({
                         <span className="text-sm font-semibold text-success-500">
                           {card.amount !== null
                             ? card.amountPeriod === 'year'
-                              ? `Up to ${formatMoney('SGD', card.amount)}/yr`
-                              : `${formatMoney('SGD', card.amount)} off`
-                            : card.coverageNote
-                              ? 'Case-by-case'
-                              : `Up to ${card.saves}% ${t.coverage}`}
+                              ? t.up_to_year.replace('{amount}', formatMoney('SGD', card.amount))
+                              : t.off_label.replace('{amount}', formatMoney('SGD', card.amount))
+                            : card.saves > 0 || !card.coverageNote
+                              ? t.up_to_percent_coverage.replace('{pct}', String(card.saves)).replace('{coverage}', t.coverage)
+                              : t.case_by_case}
                         </span>
                       </div>
                     </div>
 
                     <div className="text-right">
-                      <p className={card.amount === null && card.coverageNote ? 'text-sm font-bold text-teal-700 max-w-[7rem]' : 'text-xl font-bold text-teal-700'}>
+                      <p className={card.amount === null && card.saves === 0 && card.coverageNote ? 'text-sm font-bold text-teal-700 max-w-[7rem]' : 'text-xl font-bold text-teal-700'}>
                         {card.amount !== null
                           ? formatMoney('SGD', card.amount)
-                          : card.coverageNote
-                            ? 'Varies'
-                            : `${card.saves}%`}
+                          : card.saves > 0 || !card.coverageNote
+                            ? `${card.saves}%`
+                            : t.varies_label}
                       </p>
                       <p className="text-xs text-neutral-400">
                         {card.amount !== null
                           ? card.amountPeriod === 'year'
-                            ? 'per year'
-                            : 'per visit'
-                          : card.coverageNote
-                            ? ''
-                            : t.coverage}
+                            ? t.per_year
+                            : t.per_visit
+                          : card.saves > 0 || !card.coverageNote
+                            ? t.coverage
+                            : ''}
                       </p>
                       <ChevronRight className="w-4 h-4 text-neutral-300 ml-auto mt-1" />
                     </div>

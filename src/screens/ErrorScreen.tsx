@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion'
 import { Upload, WifiOff, FileX, AlertTriangle, RefreshCw, Phone, CheckCircle2 } from 'lucide-react'
 import { Button } from '../components/ui'
+import { useLang, T } from '../hooks/i18n'
 import type { Screen, ErrorType } from '../types'
 
 type FailedProcessingStage = 'uploading' | 'reading' | 'finding'
@@ -14,58 +15,61 @@ interface Props {
   onRetry?: () => void
 }
 
-const STAGE_LABELS: Record<FailedProcessingStage, string> = {
-  uploading: 'Uploading your document',
-  reading: 'Reading your document',
-  finding: 'Finding your subsidies',
-}
-
-const ERRORS: Record<ErrorType, {
-  icon: React.ElementType; iconBg: string; iconColor: string
-  title: string; body: string
-  primary: { label: string; icon: React.ElementType; to: Screen }
-  secondary: { label: string; to: Screen }
-  retryCount?: number
-}> = {
-  upload: {
-    icon: FileX, iconBg: 'bg-danger-50', iconColor: 'text-danger-500',
-    title: "Couldn't read this document",
-    body: "The image may be too blurry, too dark, or the document is at an angle. Try again with better lighting and a steadier hand.",
-    primary: { label: 'Take another photo', icon: Upload, to: 'camera' },
-    secondary: { label: 'See photo tips', to: 'help' },
-  },
-  processing: {
-    icon: AlertTriangle, iconBg: 'bg-orange-50', iconColor: 'text-orange-500',
-    title: 'Processing failed',
-    body: "We weren't able to analyse your document this time. This sometimes happens with unusual document formats. Please try again.",
-    primary: { label: 'Try again', icon: RefreshCw, to: 'confirm' },
-    secondary: { label: 'Get help', to: 'help' },
-    retryCount: 2,
-  },
-  no_subsidies: {
-    icon: CheckCircle2, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-400',
-    title: 'No subsidies found',
-    body: "Based on your document, we couldn't detect any active subsidy schemes. This may be because the document doesn't include the required information, or you may not be currently enrolled in a scheme.",
-    primary: { label: 'Scan a different document', icon: Upload, to: 'camera' },
-    secondary: { label: 'Contact MOH SilverLine', to: 'help' },
-  },
-  offline: {
-    icon: WifiOff, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-500',
-    title: 'No internet connection',
-    body: "HealthKaki needs an internet connection to process your document. Check your WiFi or mobile data and try again. Your document has been saved.",
-    primary: { label: 'Try again', icon: RefreshCw, to: 'confirm' },
-    secondary: { label: 'View past results', to: 'history' },
-  },
-  validation: {
-    icon: AlertTriangle, iconBg: 'bg-orange-50', iconColor: 'text-orange-500',
-    title: 'Please check your input',
-    body: "Some required information is missing or incorrect. Please review the highlighted fields and try again.",
-    primary: { label: 'Go back and fix', icon: RefreshCw, to: 'confirm' },
-    secondary: { label: 'Get help', to: 'help' },
-  },
-}
-
 export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMessage, errorStage, timedOut = false, onRetry }: Props) {
+  const { language } = useLang()
+  const t = T[language]
+
+  const STAGE_LABELS: Record<FailedProcessingStage, string> = {
+    uploading: t.err_stage_uploading,
+    reading: t.err_stage_reading,
+    finding: t.err_stage_finding,
+  }
+
+  const ERRORS: Record<ErrorType, {
+    icon: React.ElementType; iconBg: string; iconColor: string
+    title: string; body: string
+    primary: { label: string; icon: React.ElementType; to: Screen }
+    secondary: { label: string; to: Screen }
+    retryCount?: number
+  }> = {
+    upload: {
+      icon: FileX, iconBg: 'bg-danger-50', iconColor: 'text-danger-500',
+      title: t.err_upload_title,
+      body: t.err_upload_body,
+      primary: { label: t.err_take_another_photo, icon: Upload, to: 'camera' },
+      secondary: { label: t.err_see_photo_tips, to: 'help' },
+    },
+    processing: {
+      icon: AlertTriangle, iconBg: 'bg-orange-50', iconColor: 'text-orange-500',
+      title: t.err_processing_title,
+      body: t.err_processing_body,
+      primary: { label: t.err_try_again, icon: RefreshCw, to: 'confirm' },
+      secondary: { label: t.get_help, to: 'help' },
+      retryCount: 2,
+    },
+    no_subsidies: {
+      icon: CheckCircle2, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-400',
+      title: t.err_no_subsidies_title,
+      body: t.err_no_subsidies_body,
+      primary: { label: t.scan_different, icon: Upload, to: 'camera' },
+      secondary: { label: t.err_contact_moh, to: 'help' },
+    },
+    offline: {
+      icon: WifiOff, iconBg: 'bg-neutral-100', iconColor: 'text-neutral-500',
+      title: t.err_offline_title,
+      body: t.err_offline_body,
+      primary: { label: t.err_try_again, icon: RefreshCw, to: 'confirm' },
+      secondary: { label: t.err_view_past_results, to: 'history' },
+    },
+    validation: {
+      icon: AlertTriangle, iconBg: 'bg-orange-50', iconColor: 'text-orange-500',
+      title: t.err_validation_title,
+      body: t.err_validation_body,
+      primary: { label: t.err_go_back_fix, icon: RefreshCw, to: 'confirm' },
+      secondary: { label: t.get_help, to: 'help' },
+    },
+  }
+
   const e = ERRORS[errorType]
   const IconComponent = e.icon
 
@@ -89,17 +93,17 @@ export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMes
         {/* Retry count badge */}
         {e.retryCount !== undefined && (
           <div className="bg-orange-50 border border-orange-200 rounded-full px-3 py-1 mb-4">
-            <p className="text-sm text-orange-600 font-semibold">Attempt {e.retryCount} of 3</p>
+            <p className="text-sm text-orange-600 font-semibold">{t.err_attempt_of.replace('{n}', String(e.retryCount))}</p>
           </div>
         )}
 
         {errorStage && (
           <p className="text-sm font-semibold text-orange-600 mb-3">
-            Error during: {STAGE_LABELS[errorStage]}
+            {t.err_error_during}: {STAGE_LABELS[errorStage]}
           </p>
         )}
         <h1 className="text-2xl font-bold text-neutral-900 mb-3 leading-snug">
-          {timedOut ? 'Processing timed out' : e.title}
+          {timedOut ? t.err_processing_timed_out : e.title}
         </h1>
         <p className="text-base text-neutral-500 leading-relaxed mb-4">{errorMessage || e.body}</p>
         {errorMessage && errorMessage !== e.body && (
@@ -120,7 +124,7 @@ export default function ErrorScreen({ onNavigate, errorType = 'upload', errorMes
 
         {/* Helpline */}
         <div className="mt-8 pt-6 border-t border-neutral-200 w-full">
-          <p className="text-sm text-neutral-400 mb-2">Still having trouble?</p>
+          <p className="text-sm text-neutral-400 mb-2">{t.err_still_trouble}</p>
           <a href="tel:18006506060" className="inline-flex items-center gap-2 text-base font-semibold text-navy-500 hover:text-navy-600 transition-colors">
             <Phone className="w-4 h-4" />
             MOH SilverLine: 1800-650-6060
