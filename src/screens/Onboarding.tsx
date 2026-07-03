@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { CheckCircle2 } from 'lucide-react'
 import { Card, Button } from '../components/ui'
 import type { Profile } from '../types'
 import { CITIZENSHIP_OPTIONS, INCOME_OPTIONS, type CitizenshipStatus } from '../lib/profile-options'
@@ -15,6 +17,7 @@ export default function Onboarding({ onComplete }: Props) {
   const [householdSize, setHouseholdSize] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const [savedProfile, setSavedProfile] = useState<Profile | null>(null)
 
   const showCitizenshipYear = citizenshipStatus === 'citizen' || citizenshipStatus === 'pr'
 
@@ -56,7 +59,7 @@ export default function Onboarding({ onComplete }: Props) {
       }
 
       const { profile } = (await res.json()) as { profile: Profile }
-      onComplete(profile)
+      setSavedProfile(profile)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong')
     } finally {
@@ -168,6 +171,47 @@ export default function Onboarding({ onComplete }: Props) {
           </form>
         </Card>
       </div>
+
+      <AnimatePresence>
+        {savedProfile && (
+          <motion.div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-6"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="registration-success-title"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <motion.div
+              className="w-full max-w-sm bg-white rounded-2xl p-6 text-center"
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              transition={{ type: 'spring', stiffness: 380, damping: 28 }}
+            >
+              <motion.div
+                className="mx-auto mb-4 w-16 h-16 rounded-full bg-teal-50 flex items-center justify-center"
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ type: 'spring', stiffness: 320, damping: 18, delay: 0.1 }}
+              >
+                <CheckCircle2 className="w-9 h-9 text-teal-700" strokeWidth={2} />
+              </motion.div>
+              <h2 id="registration-success-title" className="text-xl font-bold text-neutral-900 mb-1">
+                Registration successful!
+              </h2>
+              <p className="text-sm text-neutral-500 mb-6">
+                Your profile has been saved. You&apos;re all set to start scanning documents.
+              </p>
+              <Button variant="primary" fullWidth onClick={() => onComplete(savedProfile)}>
+                Get Started
+              </Button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   )
 }
