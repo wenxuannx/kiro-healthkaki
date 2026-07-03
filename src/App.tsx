@@ -230,7 +230,7 @@ function AppInner({ profile, onSignOut, onProfileUpdate }: { profile: Profile; o
   }
 
   return (
-    <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+    <div className="min-h-dvh flex flex-col" style={{ background: '#F8F9FA' }}>
       {/* Screen content */}
       <div className="flex-1 relative overflow-hidden">
         <AnimatePresence custom={dir} mode="wait">
@@ -364,7 +364,7 @@ function AuthGate() {
 
   if (status === 'signedOut') {
     return (
-      <div className="min-h-screen flex flex-col bg-white">
+      <div className="min-h-dvh flex flex-col bg-white">
         <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb] flex-1">
           <Login onAuthenticated={loadProfile} />
         </div>
@@ -374,7 +374,7 @@ function AuthGate() {
 
   if (status === 'onboarding') {
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+      <div className="min-h-dvh flex flex-col" style={{ background: '#F8F9FA' }}>
         <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb] flex-1">
           <Onboarding onComplete={(p) => { setProfile(p); setStatus('ready') }} />
         </div>

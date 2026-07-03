@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 export default function Splash() {
   return (
     <motion.div
-      className="min-h-screen relative overflow-hidden flex flex-col items-center justify-center"
+      className="min-h-dvh relative overflow-hidden flex flex-col items-center justify-center"
       style={{ background: 'linear-gradient(160deg, #135555 0%, #1A7070 45%, #00897B 100%)' }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.4 }}
