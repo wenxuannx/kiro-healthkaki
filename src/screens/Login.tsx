@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import { Card, Button } from '../components/ui'
+import { motion } from 'framer-motion'
+import { Button } from '../components/ui'
 import { isValidNric } from '../lib/nric'
 
 interface Props {
@@ -44,14 +45,46 @@ export default function Login({ onAuthenticated }: Props) {
   }
 
   return (
-    <div className="min-h-full bg-neutral-50 flex flex-col items-center px-5 py-10">
-      <div className="w-full max-w-sm">
-        <h1 className="text-2xl font-bold text-neutral-900 text-center mb-1">Welcome to HealthKaki</h1>
-        <p className="text-sm text-neutral-500 text-center mb-6">
-          Enter your NRIC/FIN and date of birth to continue
-        </p>
+    <div className="min-h-full flex flex-col bg-white">
+      {/* Gradient hero */}
+      <div
+        className="relative flex-shrink-0 h-56 overflow-hidden"
+        style={{ background: 'linear-gradient(160deg, #135555 0%, #1A7070 45%, #00897B 100%)' }}
+      >
+        <div
+          className="absolute -top-10 -left-14 w-44 h-44 rounded-full"
+          style={{ background: 'radial-gradient(circle at 30% 30%, #26C6DA, #00897B)', opacity: 0.5, filter: 'blur(2px)' }}
+        />
+        <div
+          className="absolute -top-16 right-[-40px] w-52 h-52 rounded-full"
+          style={{ background: 'radial-gradient(circle at 35% 35%, #E0F7F5, #80DEDB)', opacity: 0.3 }}
+        />
+        <div
+          className="absolute bottom-[-70px] left-1/3 w-56 h-56 rounded-full"
+          style={{ background: 'radial-gradient(circle at 35% 35%, #00B8A9, #135555)', opacity: 0.45 }}
+        />
 
-        <Card className="p-6">
+        <div className="relative z-10 h-full flex flex-col items-center justify-center gap-2 px-6 text-center">
+          <img
+            src="/healthkaki_logo.png"
+            alt="HealthKaki"
+            className="w-60 h-auto mb-1"
+            style={{ filter: 'brightness(0) invert(1)' }}
+          />
+          <p className="text-white text-base font-semibold">
+            Enter your NRIC/FIN and date of birth to continue
+          </p>
+        </div>
+      </div>
+
+      {/* Form sheet */}
+      <motion.div
+        initial={{ y: 20, opacity: 0 }}
+        animate={{ y: 0, opacity: 1 }}
+        transition={{ duration: 0.4, ease: [0.25, 0.1, 0.25, 1] }}
+        className="relative z-10 -mt-6 flex-1 bg-white rounded-t-[28px] flex flex-col items-center px-5 pt-8 pb-10"
+      >
+        <div className="w-full max-w-sm">
           <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
             <div className="space-y-1.5">
               <label htmlFor="login-nric" className="block text-sm font-medium text-neutral-900">
@@ -87,19 +120,23 @@ export default function Login({ onAuthenticated }: Props) {
             </div>
 
             {error && (
-              <p role="alert" className="text-sm text-danger-500">{error}</p>
+              <div role="alert" className="bg-danger-50 border border-danger-400/30 rounded-xl px-4 py-3">
+                <p className="text-sm text-danger-500">{error}</p>
+              </div>
             )}
 
             <Button type="submit" variant="primary" fullWidth disabled={submitting}>
               {submitting ? 'Checking…' : 'Continue'}
             </Button>
           </form>
-        </Card>
 
-        <p className="text-center text-xs text-neutral-400 mt-5">
-          First time here? Just enter your details above — we&apos;ll set up your account automatically.
-        </p>
-      </div>
+          <div className="mt-5 bg-teal-50 border border-teal-100 rounded-xl px-4 py-3">
+            <p className="text-center text-s text-teal-700">
+              First time here? Just enter your details above — we&apos;ll set up your account automatically.
+            </p>
+          </div>
+        </div>
+      </motion.div>
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { birthYearFromIsoDate } from './lib/birthdate-cookie'
 import { createClient } from './services/supabase/client'
 import Login from './screens/Login'
 import Onboarding from './screens/Onboarding'
+import Splash from './screens/Splash'
 
 // ── Text size context ─────────────────────────────────────────
 // Steps 0–4 map to root font sizes: 13 14 16 18 20 px
@@ -295,9 +296,12 @@ function AppInner({ profile, onSignOut, onProfileUpdate }: { profile: Profile; o
 
 type AuthStatus = 'loading' | 'signedOut' | 'onboarding' | 'ready'
 
+const SPLASH_MIN_MS = 1200
+
 function AuthGate() {
   const [status, setStatus] = useState<AuthStatus>('loading')
   const [profile, setProfile] = useState<Profile | null>(null)
+  const [splashElapsed, setSplashElapsed] = useState(false)
 
   const loadProfile = useCallback(async () => {
     const res = await fetch('/api/profile')
@@ -340,18 +344,27 @@ function AuthGate() {
     return () => subscription.subscription.unsubscribe()
   }, [loadProfile])
 
+  useEffect(() => {
+    const timer = window.setTimeout(() => setSplashElapsed(true), SPLASH_MIN_MS)
+    return () => window.clearTimeout(timer)
+  }, [])
+
   const handleSignOut = useCallback(async () => {
     const supabase = createClient()
     await supabase.auth.signOut()
   }, [])
 
-  if (status === 'loading') {
-    return <div className="min-h-screen" style={{ background: '#F8F9FA' }} />
+  if (status === 'loading' || !splashElapsed) {
+    return (
+      <AnimatePresence>
+        <Splash key="splash" />
+      </AnimatePresence>
+    )
   }
 
   if (status === 'signedOut') {
     return (
-      <div className="min-h-screen flex flex-col" style={{ background: '#F8F9FA' }}>
+      <div className="min-h-screen flex flex-col bg-white">
         <div className="min-h-full max-w-2xl mx-auto w-full md:shadow-[1px_0_0_0_#e5e7eb,-1px_0_0_0_#e5e7eb] flex-1">
           <Login onAuthenticated={loadProfile} />
         </div>
