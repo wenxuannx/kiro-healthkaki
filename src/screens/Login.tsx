@@ -186,7 +186,7 @@ export default function Login({ onAuthenticated }: Props) {
                   maxLength={9}
                   value={nric}
                   onChange={(e) => setNric(e.target.value.toUpperCase().slice(0, 9))}
-                  placeholder="e.g S1234567D"
+                  placeholder="S1234567D"
                   className="w-full min-h-[44px] px-4 py-2.5 pr-12 text-base border border-neutral-300 rounded-lg bg-white text-neutral-900 focus:border-teal-600 focus:ring-2 focus:ring-teal-200 outline-none uppercase"
                 />
                 <button
